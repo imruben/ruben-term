@@ -307,3 +307,13 @@ func TestNormalizeAndMergeHosts(t *testing.T) {
 		t.Errorf("hosts: %+v", hosts)
 	}
 }
+
+func TestFontFamilies(t *testing.T) {
+	got := fontFamilies("Cascadia Code\r\nCascadia Code Light\nconsolas\nDejaVu Sans Mono,DejaVu Sans Mono Book\n.SF NS\n@MS Gothic\nCascadia Code\nUbuntu Mono Medium\nUbuntu Mono\nArial Black\n")
+	want := []string{"Cascadia Code", "consolas", "DejaVu Sans Mono", "Ubuntu Mono"}
+	// "Arial Black" stays: there is no "Arial" to fold it into
+	want = append([]string{"Arial Black"}, want...)
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

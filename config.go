@@ -48,7 +48,7 @@ type Server struct {
 
 func defaultConfig() Config {
 	return Config{
-		FontFamily:   `"JetBrainsMono Nerd Font", "JetBrainsMono NF", "Cascadia Code", "SF Mono", Menlo, Consolas, monospace`,
+		FontFamily:   `"Cascadia Code", "JetBrainsMono Nerd Font", "JetBrainsMono NF", "SF Mono", Menlo, Consolas, monospace`,
 		FontSize:     13,
 		LineHeight:   1.2,
 		Theme:        "dark",

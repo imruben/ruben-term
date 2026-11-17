@@ -327,3 +327,9 @@ main { flex: 1; min-height: 0; display: flex; }
   .s-card { grid-template-columns: 1fr; }
   .s-card .wide { grid-column: auto; }
 }
+.font-preview {
+  margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--fg); white-space: pre; overflow: hidden;
+}
+#settings select optgroup { color: var(--faint); }
+#settings select option { color: var(--fg); background: var(--surface); }

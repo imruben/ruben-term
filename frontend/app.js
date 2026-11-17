@@ -1188,9 +1188,9 @@ function sGeneral() {
   const d = draft;
   return [el('div', { class: 's-grid' },
     ...field('Theme', select(d.theme, [['dark', 'Dark'], ['light', 'Light'], ['system', 'Same as the system']], (v) => { d.theme = v; })),
-    ...field('Font size', el('input', { type: 'number', min: 6, max: 40, value: d.fontSize, oninput: (ev) => { d.fontSize = Number(ev.target.value) || 13; } })),
-    ...field('Line height', el('input', { type: 'number', min: 1, max: 2, step: 0.05, value: d.lineHeight, oninput: (ev) => { d.lineHeight = Number(ev.target.value) || 1.2; } })),
-    ...field('Font', input(d.fontFamily, (v) => { d.fontFamily = v; }, { class: 'mono' }), 'A CSS font list: the first one installed is used.'),
+    ...fontField(d),
+    ...field('Font size', el('input', { type: 'number', min: 6, max: 40, value: d.fontSize, oninput: (ev) => { d.fontSize = Number(ev.target.value) || 13; fontPreview(); } })),
+    ...field('Line height', el('input', { type: 'number', min: 1, max: 2, step: 0.05, value: d.lineHeight, oninput: (ev) => { d.lineHeight = Number(ev.target.value) || 1.2; fontPreview(); } })),
     ...field('Default shell', select(d.defaultProfile && boot.profiles.some((p) => p.id === d.defaultProfile || p.name === d.defaultProfile) ? (boot.profiles.find((p) => p.id === d.defaultProfile || p.name === d.defaultProfile).id) : '',
       [['', `The first one (${boot.profiles[0] ? boot.profiles[0].name : 'none'})`], ...boot.profiles.map((p) => [p.id, p.name])], (v) => { d.defaultProfile = v; })),
     ...field('Panel at start', select(d.panel || '', [['', 'None'], ['ports', 'Ports'], ['ssh', 'SSH'], ['projects', 'Projects']], (v) => { d.panel = v; })),
@@ -1200,6 +1200,80 @@ function sGeneral() {
     el('span'), check('Copy on select', d.copyOnSelect, (v) => { d.copyOnSelect = v; }),
     el('span'), check('Blinking cursor', d.cursorBlink, (v) => { d.cursorBlink = v; }),
   )];
+}
+
+// Font: the fonts of this computer, monospaced ones first. Picking one writes
+// "<font>", then fallbacks that have the Nerd Font icons, then monospace.
+let fontList = null;                 // installed families, null until asked
+const FONT_FALLBACK = ['JetBrainsMono Nerd Font', 'JetBrainsMono NF', 'Symbols Nerd Font Mono'];
+const cssFamilies = (list) => list.split(',').map((f) => f.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+const fontCss = (name) => [name, ...FONT_FALLBACK.filter((f) => f !== name)].map((f) => `"${f.replace(/"/g, '')}"`).join(', ') + ', monospace';
+
+function isMono(name) {
+  const c = isMono.ctx || (isMono.ctx = document.createElement('canvas').getContext('2d'));
+  c.font = `20px "${name.replace(/"/g, '')}"`;
+  return Math.abs(c.measureText('iiiiiiiiii').width - c.measureText('WWWWWWWWWW').width) < 1;
+}
+// The font the terminal really uses: the first of the list that is installed.
+function currentFont(list) {
+  const fams = cssFamilies(list);
+  if (!fontList) return fams[0] || '';
+  const lower = new Map(fontList.map((f) => [f.toLowerCase(), f]));
+  for (const f of fams) if (lower.has(f.toLowerCase())) return lower.get(f.toLowerCase());
+  return '';
+}
+
+function fontPreview() {
+  const box = document.getElementById('font-preview');
+  if (!box || !draft) return;
+  box.style.fontFamily = draft.fontFamily;
+  box.style.fontSize = `${draft.fontSize}px`;
+  box.style.lineHeight = String(draft.lineHeight);
+}
+
+function fontField(d) {
+  const custom = input(d.fontFamily, (v) => { d.fontFamily = v; fontPreview(); }, { class: 'mono', 'aria-label': 'Font list (CSS)' });
+  const sel = el('select', { 'aria-label': 'Font' });
+  const help = el('span', { class: 'help' });
+  const preview = el('div', { id: 'font-preview', class: 'font-preview' },
+    el('span', { style: 'color: var(--accent)', text: '~/dev/projects' }), ' on ', el('span', { style: 'color: #c792ea', text: 'main' }), '\n',
+    el('span', { style: 'color: var(--ok)', text: '❯' }), ' ls -la {}[] => != 0O 1lI |');
+  const fill = () => {
+    const now = currentFont(d.fontFamily);
+    const opts = [];
+    if (!fontList) {
+      opts.push(el('option', { value: '', text: now ? `${now} (looking for fonts…)` : 'Looking for fonts…' }));
+    } else {
+      const mono = fontList.filter(isMono);
+      const other = fontList.filter((f) => !mono.includes(f));
+      if (!now) opts.push(el('option', { value: '', text: 'Not installed: ' + (cssFamilies(d.fontFamily)[0] || '?') }));
+      opts.push(el('optgroup', { label: 'Monospaced' }, ...mono.map((f) => el('option', { value: f, text: f }))));
+      if (other.length) opts.push(el('optgroup', { label: 'Other fonts' }, ...other.map((f) => el('option', { value: f, text: f }))));
+    }
+    opts.push(el('option', { value: '\u0000custom', text: 'Custom CSS list…' }));
+    sel.replaceChildren(...opts);
+    sel.value = fontField.custom ? '\u0000custom' : (fontList ? now : '');
+    custom.hidden = !fontField.custom;
+    help.textContent = fontField.custom
+      ? 'Font names separated by commas: the first one installed is used.'
+      : fontList ? `${fontList.filter(isMono).length} monospaced fonts on this computer.` : '';
+  };
+  sel.addEventListener('change', () => {
+    fontField.custom = sel.value === '\u0000custom';
+    if (!fontField.custom && sel.value) { d.fontFamily = fontCss(sel.value); custom.value = d.fontFamily; }
+    fill();
+    fontPreview();
+    if (fontField.custom) custom.focus();
+  });
+  fontField.custom = false;
+  fill();
+  if (!fontList) {
+    api.Fonts().then((list) => { fontList = list && list.length ? list : null; if (!fontList) fontField.custom = true; })
+      .catch(() => { fontField.custom = true; })
+      .finally(() => { if (sel.isConnected) fill(); });
+  }
+  setTimeout(fontPreview);
+  return field('Font', sel, null).concat([el('span'), el('div', { class: 's-field' }, custom, help, preview)]);
 }
 
 function sProjects() {

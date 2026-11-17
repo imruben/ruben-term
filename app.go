@@ -23,6 +23,7 @@ type App struct {
 	envs     map[string]*environment
 	profiles []Profile
 	sessions *sessions
+	fonts    []string // the installed font families, once asked
 }
 
 func NewApp() *App {
@@ -126,6 +127,24 @@ func (a *App) SaveConfig(cfg Config) (Boot, error) {
 	a.cfgErr = ""
 	a.mu.Unlock()
 	return a.Bootstrap(), nil
+}
+
+// Fonts lists the font families installed on this computer (Settings → Font).
+func (a *App) Fonts() ([]string, error) {
+	a.mu.Lock()
+	cached := a.fonts
+	a.mu.Unlock()
+	if cached != nil {
+		return cached, nil
+	}
+	fonts, err := installedFonts()
+	if err != nil {
+		return []string{}, err
+	}
+	a.mu.Lock()
+	a.fonts = fonts
+	a.mu.Unlock()
+	return fonts, nil
 }
 
 // DefaultConfig is what a new install starts with (Settings → Reset).
