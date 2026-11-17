@@ -1394,6 +1394,7 @@ $('settings').addEventListener('mousedown', (ev) => { if (ev.target === $('setti
   isMac = boot.platform === 'darwin';
   document.body.classList.add(isMac ? 'mac' : boot.platform);
   $('win').hidden = boot.platform !== 'windows';
+  if (boot.platform === 'windows') setupGrips();
   renderBar();
   applyLook();
   if (boot.configError) toast(`config.json: ${boot.configError}\nUsing the defaults.`);
@@ -1402,6 +1403,29 @@ $('settings').addEventListener('mousedown', (ev) => { if (ev.target === $('setti
   if (VIEWS.includes(cfg.panel)) { showView(cfg.panel); if (cur()) cur().term.focus(); }
   autorun(boot.autorun);
 })();
+
+// Windows: the window has no frame, so it is resized from #grips. Wails' own edge
+// detection (6px, on the page) loses the mouse to the terminal, so it is turned off;
+// a grip asks Windows for the same native resize it would have started.
+function setupGrips() {
+  const grips = $('grips');
+  if (window.wails && window.wails.flags) window.wails.flags.borderThickness = 0;
+  const update = async () => {
+    let big = false;
+    try { big = (await rt.WindowIsMaximised()) || (await rt.WindowIsFullscreen()); } catch (_) { /* keep them */ }
+    grips.hidden = big;
+  };
+  grips.addEventListener('mousedown', (ev) => {
+    const edge = ev.target.dataset.edge;
+    if (!edge || ev.button !== 0) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    window.WailsInvoke('resize:' + edge + '-resize');
+  });
+  grips.addEventListener('dblclick', (ev) => { ev.stopPropagation(); });
+  window.addEventListener('resize', update);
+  update();
+}
 
 // RUBEN_TERM_AUTORUN="ports ;; sleep:800 ;; type:ls\r ;; splitRight": steps the window
 // runs by itself after it starts, for checking it without hands. A step is an action

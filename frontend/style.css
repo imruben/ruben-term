@@ -333,3 +333,22 @@ main { flex: 1; min-height: 0; display: flex; }
 }
 #settings select optgroup { color: var(--faint); }
 #settings select option { color: var(--fg); background: var(--surface); }
+
+/* ── window edges (Windows, frameless): above everything, so a terminal or a panel
+   at the edge cannot take the mouse. --grip is the edge, --corner the corners. ── */
+#grips { --grip: 5px; --corner: 14px; }
+#grips > div { position: fixed; z-index: 1000; --wails-draggable: no-drag; }
+#grips [data-edge="n"] { top: 0; left: var(--corner); right: var(--corner); height: var(--grip); cursor: n-resize; }
+#grips [data-edge="s"] { bottom: 0; left: var(--corner); right: var(--corner); height: var(--grip); cursor: s-resize; }
+#grips [data-edge="w"] { left: 0; top: var(--corner); bottom: var(--corner); width: var(--grip); cursor: w-resize; }
+#grips [data-edge="e"] { right: 0; top: var(--corner); bottom: var(--corner); width: var(--grip); cursor: e-resize; }
+#grips [data-edge="nw"] { top: 0; left: 0; width: var(--corner); height: var(--grip); cursor: nw-resize; }
+#grips [data-edge="ne"] { top: 0; right: 0; width: var(--corner); height: var(--grip); cursor: ne-resize; }
+#grips [data-edge="sw"], #grips [data-edge="se"] { bottom: 0; width: var(--corner); height: var(--corner); }
+#grips [data-edge="sw"] { left: 0; cursor: sw-resize; }
+#grips [data-edge="se"] { right: 0; cursor: se-resize; }
+/* the top corners stay thin so the window buttons and the first tab keep their clicks;
+   the side strips reach them */
+#grips [data-edge="nw"]::after, #grips [data-edge="ne"]::after { content: ""; position: absolute; top: 0; width: var(--grip); height: var(--corner); }
+#grips [data-edge="nw"]::after { left: 0; }
+#grips [data-edge="ne"]::after { right: 0; }
