@@ -178,12 +178,17 @@ function makePane(tab, opts) {
     term, fit: new FitAddon.FitAddon(), search: new SearchAddon.SearchAddon(),
     label: opts.label || prof.name, title: '', cwd: opts.cwd || '',
     unacked: 0, born: Date.now(), dead: false, gone: false,
+    // for the next start: an id for what it shows (screens.json), what it is running
+    uid: opts.uid || Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+    running: '', dirty: false, serialize: new SerializeAddon.SerializeAddon(),
+    restore: opts.restore || null,
   };
   p.el.style.flexGrow = '1';
   byLeaf.set(p.el, p);
   tab.panes.push(p);
   term.loadAddon(p.fit);
   term.loadAddon(p.search);
+  term.loadAddon(p.serialize);
   term.loadAddon(new WebLinksAddon.WebLinksAddon((ev, uri) => { api.OpenURL(uri).catch(toast); }));
   try {
     term.loadAddon(new Unicode11Addon.Unicode11Addon());
@@ -230,15 +235,30 @@ async function startPane(p, opts) {
     }
     return true;
   });
+  // OSC 7777 (ruben-term's zsh): "run;<command>" when a command starts, "idle" at the prompt
+  term.parser.registerOscHandler(7777, (data) => {
+    const was = p.running;
+    if (data === 'idle') p.running = '';
+    else if (data.startsWith('run;')) p.running = data.slice(4).trim();
+    if (p.running !== was) saveSoon();
+    return true;
+  });
   p.el.addEventListener('contextmenu', (ev) => {   // right click: copy the selection, or paste
     ev.preventDefault();
     if (term.hasSelection()) copySelection(p); else paste(p);
   });
 
   fitPane(p);
+  if (opts.screen) {               // what it showed when the app was closed
+    // (on Windows the console of this pane starts at the cursor instead of clearing
+    // the screen: NewSession's restored)
+    term.write(opts.screen);
+    term.write('\r\n\x1b[2m── restored · ' + new Date(opts.savedAt || Date.now()).toLocaleString() + ' ──\x1b[0m\r\n');
+  }
+  p.running = opts.run || '';
   term.write('\x1b[2mstarting ' + profile(p.profileId).name + '…\x1b[0m');
   try {
-    const id = await api.NewSession(p.profileId, opts.cwd || '', opts.run || '', term.cols, term.rows);
+    const id = await api.NewSession(p.profileId, opts.cwd || '', opts.run || '', opts.typed || '', !!opts.screen, term.cols, term.rows);
     if (p.gone) { api.CloseSession(id); early.delete(id); return; }   // closed while it was starting
     p.id = id;
     bySession.set(id, p);
@@ -254,6 +274,7 @@ async function startPane(p, opts) {
 }
 
 function feed(p, bytes) {
+  p.dirty = true;
   p.term.write(bytes, () => {
     p.unacked += bytes.length;
     if (p.unacked >= 65536 && p.id) {     // tell the Go side what has been drawn (flow control)
@@ -328,6 +349,7 @@ function gutter() {
       g.removeEventListener('pointermove', move);
       g.removeEventListener('pointerup', up);
       g.removeEventListener('pointercancel', up);
+      saveSoon();
       if (cur()) cur().term.focus();
     };
     g.addEventListener('pointermove', move);
@@ -337,6 +359,7 @@ function gutter() {
   });
   g.addEventListener('dblclick', () => {
     for (const c of g.parentElement.children) if (!c.classList.contains('gutter')) c.style.flexGrow = '1';
+    saveSoon();
   });
   return g;
 }
@@ -448,6 +471,7 @@ function unzoom(tab) {
 // ───────────────────────── tabs ─────────────────────────
 
 function renderTab(tab) {
+  saveSoon();
   const p = tab.focused;
   if (!p) return;
   const title = p.title || p.label;
@@ -483,12 +507,80 @@ function openTab(opts) {
   $('terms').append(tab.view);
   tabs.push(tab);
 
+  if (opts.layout) {               // a tab of the last run: its panes, splits and sizes
+    const root = buildLayout(tab, opts.layout, profileId, opts.screens || {}, opts.savedAt);
+    root.style.flexGrow = '1';
+    tab.view.append(root);
+    const leaves = [...tab.view.querySelectorAll('.leaf')].map((e) => byLeaf.get(e));
+    tab.focused = leaves[opts.focused] || leaves[0];
+    tab.view.classList.toggle('multi', leaves.length > 1);
+    activate(tab);
+    for (const q of leaves) {
+      const r = q.restore || {};
+      q.restore = null;
+      startPane(q, Object.assign({ cwd: q.cwd, screen: r.screen, savedAt: r.savedAt }, restartPlan(r.running, q.profileId)));
+    }
+    return tab;
+  }
   const p = makePane(tab, { profileId, cwd: opts.cwd, label: opts.label });
   tab.view.append(p.el);
   tab.focused = p;
   activate(tab);
   startPane(p, opts);
   return tab;
+}
+
+// The DOM of a saved layout (see sessionState), with its panes made but not started.
+// A shell this computer does not have becomes the default one.
+function buildLayout(tab, node, fallbackProfile, screens, savedAt) {
+  const grow = String(Number(node && node.grow) > 0 ? Number(node.grow) : 1);
+  const kids = node && Array.isArray(node.children) ? node.children.filter(Boolean) : [];
+  if (node && (node.split === 'row' || node.split === 'col') && kids.length) {
+    if (kids.length === 1) {
+      const only = buildLayout(tab, kids[0], fallbackProfile, screens, savedAt);
+      only.style.flexGrow = grow;
+      return only;
+    }
+    const split = el('div', { class: 'split', 'data-dir': node.split });
+    split.style.flexGrow = grow;
+    kids.forEach((k, i) => {
+      if (i) split.append(gutter());
+      split.append(buildLayout(tab, k, fallbackProfile, screens, savedAt));
+    });
+    return split;
+  }
+  const pane = (node && node.pane) || {};
+  const profileId = profile(pane.profileId) ? pane.profileId : fallbackProfile;
+  const uid = typeof pane.uid === 'string' && pane.uid ? pane.uid : undefined;
+  const p = makePane(tab, {
+    profileId, cwd: typeof pane.cwd === 'string' ? pane.cwd : '', uid,
+    restore: { screen: uid && typeof screens[uid] === 'string' ? screens[uid] : '', running: typeof pane.running === 'string' ? pane.running : '', savedAt },
+  });
+  p.el.style.flexGrow = grow;
+  return p.el;
+}
+
+// What a restored pane does with the program that was running in it (restorePrograms):
+// Claude and opencode continue their last conversation, ssh connects again, anything
+// else waits at the prompt for Enter. "all": everything runs again; "none": nothing does.
+const RESUMABLE = { claude: '--continue', opencode: '--continue' };
+function restartPlan(cmd, profileId) {
+  cmd = (cmd || '').trim();
+  if (!cmd) return {};
+  const mode = cfg.restorePrograms || 'safe';
+  const typed = profile(profileId) && profile(profileId).kind === 'posix' ? { typed: cmd } : {};
+  if (mode === 'all') return { run: cmd };
+  if (mode === 'none') return typed;
+  const words = cmd.split(/\s+/);
+  const prog = words[0].replace(/^.*[\\/]/, '');
+  const args = words.slice(1);
+  if (prog === 'ssh') return { run: cmd };
+  if (RESUMABLE[prog] !== undefined) {
+    if (args.some((a) => a === '-p' || a === '--print')) return typed;          // one answer, not a session
+    if (args.some((a) => /^(-c|--continue|-r|--resume)$/.test(a))) return { run: cmd };
+    return { run: `${words[0]} ${RESUMABLE[prog]}` };   // not its first prompt again
+  }
+  return typed;
 }
 
 function activate(tab) {
@@ -507,6 +599,7 @@ function activate(tab) {
     tab.el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     closeFind();
     if (before !== tab.focused.profileId) refreshPanel();
+    saveSoon();
   }
   focusPane(tab.focused);
 }
@@ -528,12 +621,98 @@ function closeTab(tab) {
     const next = tabs[Math.min(i, tabs.length - 1)];
     if (next) activate(next);
   }
-  if (!tabs.length) rt.Quit();
+  saveSoon();
+  if (!tabs.length) quit();     // the last tab: the next start opens one new tab
 }
 
 function stepTab(delta) {
   if (tabs.length < 2 || !activeTab) return;
   activate(tabs[(tabs.indexOf(activeTab) + delta + tabs.length) % tabs.length]);
+}
+
+// ───────────────────────── session: the tabs of the last run ─────────────────────────
+// Saved (session.json, by the Go side) a moment after any change: each tab's splits,
+// their sizes, and each pane's shell and folder. The programs that ran in them are not
+// started again: a restored pane is a shell in the same folder.
+
+let restoring = true;            // nothing is saved until the start has restored
+let saveTimer = 0;
+let lastSaved = '';
+
+function nodeState(node) {
+  const grow = Math.round((parseFloat(node.style.flexGrow) || 1) * 1000) / 1000;
+  if (node.classList.contains('leaf')) {
+    const p = byLeaf.get(node);
+    return { grow, pane: { profileId: p.profileId, cwd: p.cwd || '', uid: p.uid, running: p.running || '' } };
+  }
+  return { grow, split: node.dataset.dir, children: [...node.children].filter((c) => !c.classList.contains('gutter')).map(nodeState) };
+}
+function sessionState() {
+  return {
+    version: 1,
+    savedAt: Date.now(),
+    active: Math.max(0, tabs.indexOf(activeTab)),
+    tabs: tabs.filter((t) => t.view.firstElementChild).map((t) => ({
+      focused: Math.max(0, [...t.view.querySelectorAll('.leaf')].indexOf(t.focused && t.focused.el)),
+      layout: nodeState(t.view.firstElementChild),
+    })),
+  };
+}
+function saveNow() {
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  if (restoring) return Promise.resolve();
+  const state = sessionState();
+  const same = JSON.stringify(Object.assign({}, state, { savedAt: 0 }));
+  if (same === lastSaved) return Promise.resolve();
+  lastSaved = same;
+  return api.SaveSession(JSON.stringify(state)).catch(() => { lastSaved = ''; });
+}
+
+// What every pane shows (its last 2000 lines), kept in screens.json: every 30 seconds
+// when something was written, and when the window closes.
+function saveScreens(force) {
+  if (restoring) return Promise.resolve();
+  const panes = allPanes();
+  if (!force && !panes.some((p) => p.dirty)) return Promise.resolve();
+  const out = {};
+  for (const p of panes) {
+    try { out[p.uid] = p.serialize.serialize({ scrollback: 2000, excludeAltBuffer: true, excludeModes: true }); } catch (_) { /* not drawn yet */ }
+    p.dirty = false;
+  }
+  return api.SaveScreens(JSON.stringify(out)).catch(() => {});
+}
+setInterval(() => { saveScreens(false); }, 30000);
+
+// The window is closing (the Go side asked): save everything, then close for real.
+let closingNow = false;
+rt.EventsOn('app:closing', async () => {
+  if (closingNow) return;
+  closingNow = true;
+  try { await Promise.all([saveNow(), saveScreens(true)]); } catch (_) { /* close anyway */ }
+  rt.Quit();
+});
+function saveSoon() {
+  if (restoring) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveNow, 400);
+}
+// Quits: the Go side asks the window to save first (app:closing).
+function quit() { rt.Quit(); }
+
+// Opens the tabs of the last run. False when there is nothing to open.
+async function restoreSession() {
+  let s = null;
+  let screens = {};
+  try { s = JSON.parse((await api.LoadSession()) || 'null'); } catch (_) { s = null; }
+  if (!s || !Array.isArray(s.tabs) || !s.tabs.length) return false;
+  try { screens = JSON.parse((await api.LoadScreens()) || '{}') || {}; } catch (_) { screens = {}; }
+  for (const t of s.tabs) {
+    if (t && t.layout) openTab({ layout: t.layout, focused: Number(t.focused) || 0, profileId: boot.defaultProfile, screens, savedAt: s.savedAt });
+  }
+  if (!tabs.length) return false;
+  activate(tabs[Math.min(Number(s.active) || 0, tabs.length - 1)]);
+  return true;
 }
 
 rt.EventsOn('pty:data', (id, b64) => {
@@ -769,7 +948,7 @@ $('palette-btn').addEventListener('click', () => togglePalette());
 document.querySelectorAll('.view-btn').forEach((b) => b.addEventListener('click', () => run(b.dataset.view)));
 $('win-min').addEventListener('click', () => rt.WindowMinimise());
 $('win-max').addEventListener('click', () => rt.WindowToggleMaximise());
-$('win-close').addEventListener('click', () => rt.Quit());
+$('win-close').addEventListener('click', () => quit());
 $('bar').addEventListener('dblclick', (ev) => {       // like a title bar
   if (ev.target === $('bar') || ev.target === $('drag')) rt.WindowToggleMaximise();
 });
@@ -1197,6 +1376,13 @@ function sGeneral() {
     ...field('Scrollback', el('input', { type: 'number', min: 0, step: 1000, value: d.scrollback, oninput: (ev) => { d.scrollback = Math.max(0, Number(ev.target.value) || 0); } }), 'Lines kept above the screen.'),
     el('span'), el('div', { class: 's-field' }, check('Load my ~/.zshrc', d.loadUserRc, (v) => { d.loadUserRc = v; }),
       el('span', { class: 'help', text: 'Your own lines (PATH, aliases); new tabs only.' })),
+    el('span'), el('div', { class: 's-field' }, check('Reopen the tabs of the last time', d.restoreTabs, (v) => { d.restoreTabs = v; }),
+      el('span', { class: 'help', text: 'Each tab with its panes, in the same folders, showing what they showed.' })),
+    ...field('Programs that were running', select(d.restorePrograms || 'safe', [
+      ['safe', 'Reopen Claude, opencode and ssh; type the rest'],
+      ['all', 'Run them all again'],
+      ['none', 'Type them at the prompt, run nothing'],
+    ], (v) => { d.restorePrograms = v; }), 'Claude and opencode continue their last conversation. A typed command runs with Enter.'),
     el('span'), check('Copy on select', d.copyOnSelect, (v) => { d.copyOnSelect = v; }),
     el('span'), check('Blinking cursor', d.cursorBlink, (v) => { d.cursorBlink = v; }),
   )];
@@ -1399,7 +1585,9 @@ $('settings').addEventListener('mousedown', (ev) => { if (ev.target === $('setti
   applyLook();
   if (boot.configError) toast(`config.json: ${boot.configError}\nUsing the defaults.`);
   await document.fonts.ready.catch(() => {});
-  openTab({});
+  if (!(cfg.restoreTabs && await restoreSession())) openTab({});
+  restoring = false;
+  saveSoon();
   if (VIEWS.includes(cfg.panel)) { showView(cfg.panel); if (cur()) cur().term.focus(); }
   autorun(boot.autorun);
 })();

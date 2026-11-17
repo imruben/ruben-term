@@ -25,6 +25,12 @@ _rt_prompt() {
     history -s -- "$cmd"
     eval "$cmd"
   fi
+  if [ -n "$RUBEN_TERM_TYPE" ]; then     # a restored tab: ↑ gives what was running
+    history -s -- "$RUBEN_TERM_TYPE"
+    printf '\e[2m(was running: %s · ↑ to run it again)\e[0m\n' "$RUBEN_TERM_TYPE"
+    unset RUBEN_TERM_TYPE
+  fi
+  printf '\e]7777;idle\a'
 }
 PROMPT_COMMAND=_rt_prompt
 

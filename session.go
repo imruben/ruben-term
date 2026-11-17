@@ -40,14 +40,20 @@ func newSessions(emit func(string, ...any)) *sessions {
 	return &sessions{byID: map[string]*session{}, emit: emit}
 }
 
-func (m *sessions) start(spec spawnSpec, cols, rows int) (string, error) {
+// start runs spec in a new pty. inherit: the terminal already shows something (a
+// restored tab), so on Windows the console must not clear it.
+func (m *sessions) start(spec spawnSpec, cols, rows int, inherit bool) (string, error) {
 	if cols < 2 {
 		cols = 80
 	}
 	if rows < 2 {
 		rows = 24
 	}
-	p, err := pty.New()
+	newPty := pty.New
+	if inherit {
+		newPty = pty.NewInheritCursor
+	}
+	p, err := newPty()
 	if err != nil {
 		return "", err
 	}

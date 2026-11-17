@@ -202,7 +202,7 @@ func TestSession(t *testing.T) {
 			exit <- args[1].(int)
 		}
 	})
-	id, err := m.start(spawnSpec{path: "/bin/sh", args: []string{"-c", "stty size; read x; echo \"got:$x\"; exit 3"}}, 100, 30)
+	id, err := m.start(spawnSpec{path: "/bin/sh", args: []string{"-c", "stty size; read x; echo \"got:$x\"; exit 3"}}, 100, 30, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestSessionClose(t *testing.T) {
 			exit <- args[1].(int)
 		}
 	})
-	id, err := m.start(spawnSpec{path: "/bin/sh", args: []string{"-c", "sleep 60"}}, 80, 24)
+	id, err := m.start(spawnSpec{path: "/bin/sh", args: []string{"-c", "sleep 60"}}, 80, 24, false)
 	if err != nil {
 		t.Fatal(err)
 	}

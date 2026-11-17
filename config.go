@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -35,6 +36,12 @@ type Config struct {
 	// Servers are SSH hosts added in Settings, shown in the SSH panel before the hosts
 	// of ~/.ssh/config.
 	Servers []Server `json:"servers"`
+	// RestoreTabs opens the tabs and panes of the last run, each in its folder.
+	RestoreTabs bool `json:"restoreTabs"`
+	// RestorePrograms is what happens to a program that was running in a restored pane:
+	// "safe" reopens Claude, opencode and ssh and types the rest at the prompt, "all"
+	// runs every one again, "none" types them all.
+	RestorePrograms string `json:"restorePrograms"`
 }
 
 // Server is an SSH host kept in config.json, so it does not need ~/.ssh/config.
@@ -61,9 +68,11 @@ func defaultConfig() Config {
 			{Name: "Claude", Command: "claude"},
 			{Name: "opencode", Command: "opencode"},
 		},
-		ProjectRoots: []string{},
-		Panel:        "",
-		Servers:      []Server{},
+		ProjectRoots:    []string{},
+		Panel:           "",
+		Servers:         []Server{},
+		RestoreTabs:     true,
+		RestorePrograms: "safe",
 	}
 }
 
@@ -120,6 +129,11 @@ func normalize(cfg Config) Config {
 	case "dark", "light", "system":
 	default:
 		cfg.Theme = def.Theme
+	}
+	switch cfg.RestorePrograms {
+	case "safe", "all", "none":
+	default:
+		cfg.RestorePrograms = def.RestorePrograms
 	}
 	switch cfg.Panel {
 	case "", "ports", "ssh", "projects":
@@ -210,4 +224,32 @@ func saveState(st windowState) {
 		_ = os.MkdirAll(configDir(), 0o755)
 		_ = os.WriteFile(statePath(), data, 0o644)
 	}
+}
+
+// session.json: the tabs and panes of the last run (see SaveSession). screens.json:
+// what each pane showed, by pane id (see SaveScreens).
+func sessionPath() string { return filepath.Join(configDir(), "session.json") }
+func screensPath() string { return filepath.Join(configDir(), "screens.json") }
+
+func readJSONFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil || !json.Valid(data) {
+		return ""
+	}
+	return string(data)
+}
+
+// writeJSONFile replaces the file in one step, so a crash leaves the old one.
+func writeJSONFile(path, data string) error {
+	if !json.Valid([]byte(data)) {
+		return errors.New(filepath.Base(path) + ": not JSON")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(data), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

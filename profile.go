@@ -191,7 +191,7 @@ type spawnSpec struct {
 
 // spawn says how to start a tab: in folder cwd (of the environment), running `run`
 // first when a launcher asked for it.
-func (e *environment) spawn(cwd, run string, loadUserRc bool) (spawnSpec, error) {
+func (e *environment) spawn(cwd, run, typed string, loadUserRc bool) (spawnSpec, error) {
 	if err := e.prepare(); err != nil {
 		return spawnSpec{}, err
 	}
@@ -226,9 +226,10 @@ func (e *environment) spawn(cwd, run string, loadUserRc bool) (spawnSpec, error)
 		return spec, nil
 	}
 
-	passed := []string{"RUBEN_TERM_CWD", "RUBEN_TERM_RUN", "RUBEN_TERM_INHERIT"}
+	passed := []string{"RUBEN_TERM_CWD", "RUBEN_TERM_RUN", "RUBEN_TERM_TYPE", "RUBEN_TERM_INHERIT"}
 	set("RUBEN_TERM_CWD", cwd)
 	set("RUBEN_TERM_RUN", run)
+	set("RUBEN_TERM_TYPE", typed)
 	if loadUserRc {
 		set("RUBEN_TERM_INHERIT", "1")
 	} else {

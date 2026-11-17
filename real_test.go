@@ -17,7 +17,7 @@ func TestRealShell(t *testing.T) {
 		t.Skip("set RT_REAL=1")
 	}
 	e := &environment{Profile: Profile{ID: "shell", Kind: "posix"}}
-	spec, err := e.spawn(os.Getenv("RT_CWD"), "echo RUN:$RUBEN_TERM:${TERMINAL_SETUP:-none}:${TMUX:-notmux}:$ZDOTDIR", true)
+	spec, err := e.spawn(os.Getenv("RT_CWD"), "echo RUN:$RUBEN_TERM:${TERMINAL_SETUP:-none}:${TMUX:-notmux}:$ZDOTDIR", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestRealShell(t *testing.T) {
 		}
 	})
 	start := time.Now()
-	id, err := m.start(spec, 120, 30)
+	id, err := m.start(spec, 120, 30, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -99,15 +99,19 @@ PROMPT=$'\n'"${_rt_host}"$'%F{blue}%~%f${vcs_info_msg_0_}\n%(?.%F{green}.%F{red}
 RPROMPT=
 unset _rt_host
 
-# ── what the app reads: the folder (OSC 7) and the tab title ────
+# ── what the app reads: the folder (OSC 7), the tab title, and what is running
+#    (OSC 7777: "run;<command>" when one starts, "idle" at the prompt), so a restored
+#    tab knows what to start again ─────────────────────────────────
 _rt_precmd() {
   vcs_info
   print -rn -- $'\e]7;file://'"${HOST}${PWD// /%20}"$'\e\\'
   print -rn -- $'\e]0;'"${(%):-%1~}"$'\a'
+  print -rn -- $'\e]7777;idle\a'
 }
 _rt_preexec() {
   local cmd=${1%%$'\n'*}
   print -rn -- $'\e]0;'"${cmd[1,40]}"$'\a'
+  print -rn -- $'\e]7777;run;'"${cmd//[[:cntrl:]]/}"$'\a'
 }
 add-zsh-hook precmd _rt_precmd
 add-zsh-hook preexec _rt_preexec
@@ -124,6 +128,18 @@ if [[ -n $RUBEN_TERM_RUN ]]; then
     eval "$cmd"
   }
   add-zsh-hook precmd _rt_run
+fi
+
+# ── a restored tab: the command that was running is waiting at the prompt (Enter runs
+#    it), not run by itself ─────────────────────────────────────────
+if [[ -n $RUBEN_TERM_TYPE ]]; then
+  _rt_type() {
+    add-zsh-hook -d precmd _rt_type
+    print -s -- "$RUBEN_TERM_TYPE"
+    print -z -- "$RUBEN_TERM_TYPE"
+    unset RUBEN_TERM_TYPE
+  }
+  add-zsh-hook precmd _rt_type
 fi
 
 # ── extras, only when they are installed ────────────────────────

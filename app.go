@@ -24,6 +24,8 @@ type App struct {
 	profiles []Profile
 	sessions *sessions
 	fonts    []string // the installed font families, once asked
+	closing  bool     // the window is closing: the tabs it closes are not saved
+	flushing bool     // the window was asked to save before closing
 }
 
 func NewApp() *App {
@@ -43,7 +45,23 @@ func (a *App) startup(ctx context.Context) {
 	})
 }
 
+// beforeClose closes in two steps: the first time, the window is asked to save its
+// tabs and what they show ("app:closing"), and it quits again when it has (or after a
+// few seconds, if it does not answer). The second time the window really closes.
 func (a *App) beforeClose(ctx context.Context) bool {
+	a.mu.Lock()
+	if !a.flushing && !a.closing {
+		a.flushing = true
+		a.mu.Unlock()
+		wails.EventsEmit(ctx, "app:closing")
+		go func() {
+			time.Sleep(3 * time.Second)
+			wails.Quit(ctx)
+		}()
+		return true
+	}
+	a.closing = true
+	a.mu.Unlock()
 	if !wails.WindowIsMaximised(ctx) && !wails.WindowIsFullscreen(ctx) && !wails.WindowIsMinimised(ctx) {
 		w, h := wails.WindowGetSize(ctx)
 		saveState(windowState{Width: w, Height: h})
@@ -129,6 +147,35 @@ func (a *App) SaveConfig(cfg Config) (Boot, error) {
 	return a.Bootstrap(), nil
 }
 
+// SaveSession keeps the tabs and panes (JSON from the window) for the next start.
+// Once the window is closing nothing is written: its shells end, their panes close,
+// and that must not become the saved session.
+func (a *App) SaveSession(data string) error {
+	a.mu.Lock()
+	closing := a.closing
+	a.mu.Unlock()
+	if closing {
+		return nil
+	}
+	return writeJSONFile(sessionPath(), data)
+}
+
+// LoadSession is what SaveSession kept last ("" when there is nothing).
+func (a *App) LoadSession() string { return readJSONFile(sessionPath()) }
+
+// SaveScreens keeps what each pane shows ({paneId: serialized terminal}).
+func (a *App) SaveScreens(data string) error {
+	a.mu.Lock()
+	closing := a.closing
+	a.mu.Unlock()
+	if closing {
+		return nil
+	}
+	return writeJSONFile(screensPath(), data)
+}
+
+func (a *App) LoadScreens() string { return readJSONFile(screensPath()) }
+
 // Fonts lists the font families installed on this computer (Settings → Font).
 func (a *App) Fonts() ([]string, error) {
 	a.mu.Lock()
@@ -213,8 +260,10 @@ func (a *App) env(profileID string) (*environment, error) {
 }
 
 // NewSession opens a tab's shell and returns its id. cwd is a folder of that profile's
-// machine; run is a command to start in it (a launcher), empty for a plain shell.
-func (a *App) NewSession(profileID, cwd, run string, cols, rows int) (string, error) {
+// machine; run is a command to start in it (a launcher), empty for a plain shell;
+// typed is a command left at the first prompt, not run (a restored pane).
+// restored: the pane already shows what it showed last time (keep it on screen).
+func (a *App) NewSession(profileID, cwd, run, typed string, restored bool, cols, rows int) (string, error) {
 	e, err := a.env(profileID)
 	if err != nil {
 		return "", err
@@ -222,11 +271,11 @@ func (a *App) NewSession(profileID, cwd, run string, cols, rows int) (string, er
 	a.mu.Lock()
 	loadRc := a.cfg.LoadUserRc
 	a.mu.Unlock()
-	spec, err := e.spawn(cwd, run, loadRc)
+	spec, err := e.spawn(cwd, run, typed, loadRc)
 	if err != nil {
 		return "", err
 	}
-	return a.sessions.start(spec, cols, rows)
+	return a.sessions.start(spec, cols, rows, restored)
 }
 
 // Write sends what you typed (text).
