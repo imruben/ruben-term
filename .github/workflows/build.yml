@@ -5,6 +5,9 @@ name: build
 # published as a release of the public repo imruben/ruben-term-releases. The installed
 # apps look there for updates (update.go). It needs the secret RELEASES_TOKEN: a
 # fine-grained token with "Contents: read and write" on that repo only.
+# macOS runners can wait a long time for a machine, so the release does not wait for
+# the Mac: it is published with the Windows installer, and the Mac job adds its zip to
+# it when it is done.
 
 on:
   push:
@@ -66,6 +69,7 @@ jobs:
 
   mac:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -87,10 +91,22 @@ jobs:
         with:
           name: ruben-term-mac
           path: ruben-term-mac.zip
+      - name: Add to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          tag=${GITHUB_REF#refs/tags/}
+          # the release job creates the release; wait for it (up to 20 minutes)
+          for i in $(seq 40); do
+            gh release view "$tag" --repo "$RELEASES_REPO" >/dev/null 2>&1 && break
+            sleep 30
+          done
+          gh release upload "$tag" --repo "$RELEASES_REPO" --clobber ruben-term-mac.zip
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, windows, mac]
+    needs: [test, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +114,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
+          name: ruben-term-windows
           path: dist
       - name: Release notes
         run: |
@@ -109,7 +126,7 @@ jobs:
             git log --no-merges --pretty='- %s' ${prev:+$prev..}$tag
             echo
             echo "**Windows:** download \`ruben-term-${tag#v}-setup.exe\` and open it."
-            echo "**macOS:** download \`ruben-term-mac.zip\`, unzip it and drag ruben-term to Applications."
+            echo "**macOS:** download \`ruben-term-mac.zip\` (added a few minutes after the release), unzip it and drag ruben-term to Applications."
           } > notes.md
           cat notes.md
       - name: Publish
@@ -118,4 +135,4 @@ jobs:
         run: |
           tag=${GITHUB_REF#refs/tags/}
           gh release create "$tag" --repo "$RELEASES_REPO" --title "ruben-term ${tag#v}" --notes-file notes.md \
-            dist/ruben-term-windows/ruben-term-*-setup.exe dist/ruben-term-mac/ruben-term-mac.zip
+            dist/ruben-term-*-setup.exe
