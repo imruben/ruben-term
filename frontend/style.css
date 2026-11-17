@@ -135,13 +135,16 @@ main { flex: 1; min-height: 0; display: flex; }
 .tabview:not(.active) { visibility: hidden; pointer-events: none; }
 .split { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
 .split[data-dir="col"] { flex-direction: column; }
-.leaf { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; padding: 6px 2px 4px 10px; background: var(--bg); overflow: hidden; }
+.leaf { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; background: var(--bg); overflow: hidden; }
+/* the terminal's own box, without padding: the fit addon measures it, so the rows it
+   counts are the rows that are visible */
+.leaf .host { position: absolute; inset: 6px 2px 4px 10px; }
 .leaf .xterm { height: 100%; }
 .xterm .xterm-viewport { background: transparent !important; }
-/* several panes: the one you type in is the bright one */
-.tabview.multi .leaf:not(.focused) .xterm { opacity: .5; }
+/* several panes: the one you type in has a line on top, in the accent colour */
 .tabview.multi .leaf.focused::after {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: .7;
+  content: ""; position: absolute; z-index: 4; left: 0; right: 0; top: 0; height: 2px; background: var(--accent);
+  pointer-events: none;
 }
 .gutter { position: relative; flex: 0 0 1px; background: var(--line); z-index: 2; }
 .gutter::after { content: ""; position: absolute; inset: -3px; }      /* easier to grab than 1px */
@@ -252,6 +255,15 @@ main { flex: 1; min-height: 0; display: flex; }
   user-select: text; -webkit-user-select: text; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 #toast.info { border-left-color: var(--accent); }
+
+#update {
+  position: fixed; z-index: 39; right: 14px; bottom: 14px; max-width: calc(100vw - 28px);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 8px 8px 8px 12px; background: var(--surface); border: 1px solid var(--line); border-left: 2px solid var(--accent);
+  border-radius: 6px; box-shadow: var(--shadow); color: var(--fg);
+}
+#update[hidden] { display: none; }
+#update-text { flex: 1 1 auto; margin-right: 4px; }
 
 @media (max-width: 760px) {
   #launchers .launcher:not(:first-child) { display: none; }

@@ -16,16 +16,17 @@ import (
 
 // App is what the window can call (window.go.main.App.*).
 type App struct {
-	ctx      context.Context
-	mu       sync.Mutex
-	cfg      Config
-	cfgErr   string
-	envs     map[string]*environment
-	profiles []Profile
-	sessions *sessions
-	fonts    []string // the installed font families, once asked
-	closing  bool     // the window is closing: the tabs it closes are not saved
-	flushing bool     // the window was asked to save before closing
+	ctx       context.Context
+	mu        sync.Mutex
+	cfg       Config
+	cfgErr    string
+	envs      map[string]*environment
+	profiles  []Profile
+	sessions  *sessions
+	fonts     []string      // the installed font families, once asked
+	closing   bool          // the window is closing: the tabs it closes are not saved
+	flushing  bool          // the window was asked to save before closing
+	installer *releaseAsset // Windows: the installer of a newer release (CheckUpdate)
 }
 
 func NewApp() *App {
@@ -78,6 +79,7 @@ func (a *App) shutdown(context.Context) {
 // Boot is everything the window needs to draw itself.
 type Boot struct {
 	Platform       string    `json:"platform"` // windows | darwin | linux
+	Version        string    `json:"version"`  // "dev" for a build made by hand
 	WindowsBuild   int       `json:"windowsBuild"`
 	Config         Config    `json:"config"`
 	ConfigPath     string    `json:"configPath"`
@@ -99,6 +101,7 @@ func (a *App) Bootstrap() Boot {
 	}
 	return Boot{
 		Platform:       runtime.GOOS,
+		Version:        version,
 		WindowsBuild:   windowsBuild(),
 		Config:         a.cfg,
 		ConfigPath:     configPath(),

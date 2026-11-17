@@ -71,26 +71,43 @@ only for ruben-term, put it in `~/.config/ruben-term/zsh/local.zsh`.
 
 ## Install
 
-**Windows.** From WSL, with Go installed:
+Download the latest version from the
+[releases page](https://github.com/imruben/ruben-term-releases/releases/latest).
 
-```bash
-make tools      # once
-make install    # installs it and adds it to the Start menu
-```
+**Windows.** Download `ruben-term-<version>-setup.exe` and open it. It installs for
+your user only, so it doesn't ask for administrator rights, and it adds ruben-term to
+the Start menu. You can uninstall it from Settings → Apps. The installer isn't signed,
+so the first time Windows may show "Windows protected your PC". Click
+**More info → Run anyway** to continue.
 
-**macOS.** With Go and the Xcode command line tools installed:
+**macOS.** Download `ruben-term-mac.zip`, unzip it and drag ruben-term to
+Applications. The app isn't signed, so the first time you have to right-click it and
+choose **Open**. The macOS version hasn't been tested on a real Mac yet.
 
-```bash
-make tools
-make mac        # then drag build/bin/ruben-term.app to Applications
-```
+### Updates
 
-Ready-made builds are also produced by GitHub Actions. They aren't signed, so on
-macOS you have to right-click the app and choose Open the first time you run it.
-The macOS version hasn't been tested on a real Mac yet.
+ruben-term checks for a new version when it starts and every few hours after that.
+When one is out, it shows a message at the bottom right. On Windows, **Update now**
+installs the new version and reopens the app with your tabs as they were. On macOS
+the button opens the download page. You can also check by hand: open the command
+palette and choose *Check for updates*.
 
 ## For developers
 
 The app is written in Go with [Wails](https://wails.io). The terminal itself is
 [xterm.js](https://xtermjs.org), drawn in the system's own web view (WebView2 on
-Windows, WKWebView on macOS). Run the tests with `make test`.
+Windows, WKWebView on macOS).
+
+```bash
+make tools             # once: the wails command
+make test              # vet and tests
+make install           # Windows, from WSL: build and install your local copy
+make mac               # macOS: build build/bin/ruben-term.app
+make release V=1.2.3   # publish a new version
+```
+
+`make release` tags the commit and pushes the tag. GitHub Actions then builds the
+Windows installer and the macOS zip and publishes them on the public
+[releases repo](https://github.com/imruben/ruben-term-releases). Installed apps pick
+the new version up from there. Builds made by hand report their version as `dev` and
+never ask to update.

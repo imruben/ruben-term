@@ -91,6 +91,14 @@
 
   <div id="toast" hidden role="status"></div>
 
+  <!-- a newer release: shown by checkUpdate() in app.js -->
+  <div id="update" hidden role="status">
+    <span id="update-text"></span>
+    <button type="button" id="update-notes" class="btn small">What's new</button>
+    <button type="button" id="update-later" class="btn small">Later</button>
+    <button type="button" id="update-go" class="btn primary"></button>
+  </div>
+
   <!-- Windows: the window has no frame, so these are its edges (drag to resize) -->
   <div id="grips" hidden aria-hidden="true">
     <div data-edge="n"></div><div data-edge="s"></div><div data-edge="e"></div><div data-edge="w"></div>

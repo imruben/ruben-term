@@ -1,5 +1,11 @@
 name: build
 
+# Every push: test and build both apps (as workflow artifacts).
+# A tag like v1.2.3: the same, with that version built in, plus the Windows installer,
+# published as a release of the public repo imruben/ruben-term-releases. The installed
+# apps look there for updates (update.go). It needs the secret RELEASES_TOKEN: a
+# fine-grained token with "Contents: read and write" on that repo only.
+
 on:
   push:
     branches: [main]
@@ -9,6 +15,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  RELEASES_REPO: imruben/ruben-term-releases
 
 jobs:
   test:
@@ -29,11 +38,31 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
-      - run: wails build -platform windows/amd64 -skipbindings -m -nosyncgomod
+      - name: Version
+        shell: bash
+        run: |
+          v=dev
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v=${GITHUB_REF#refs/tags/v}
+            [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Tags must look like v1.2.3, not v$v"; exit 1; }
+            jq --arg v "$v" '.info.productVersion = $v' wails.json > wails.tmp && mv wails.tmp wails.json
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - run: wails build -platform windows/amd64 -skipbindings -m -nosyncgomod -ldflags "-X main.version=${{ env.VERSION }}"
+      - name: Installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $nsis)) { choco install nsis -y --no-progress }
+          & $nsis /V2 "/DVERSION=$env:VERSION" scripts\installer.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: ruben-term-windows
-          path: build/bin/ruben-term.exe
+          path: |
+            build/bin/ruben-term.exe
+            build/bin/ruben-term-*-setup.exe
 
   mac:
     runs-on: macos-latest
@@ -43,10 +72,50 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
-      - run: wails build -platform darwin/universal -skipbindings -m -nosyncgomod
+      - name: Version
+        run: |
+          v=dev
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v=${GITHUB_REF#refs/tags/v}
+            jq --arg v "$v" '.info.productVersion = $v' wails.json > wails.tmp && mv wails.tmp wails.json
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - run: wails build -platform darwin/universal -skipbindings -m -nosyncgomod -ldflags "-X main.version=${{ env.VERSION }}"
       - run: go test ./...
       - run: ditto -c -k --keepParent build/bin/ruben-term.app ruben-term-mac.zip
       - uses: actions/upload-artifact@v4
         with:
           name: ruben-term-mac
           path: ruben-term-mac.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Release notes
+        run: |
+          tag=${GITHUB_REF#refs/tags/}
+          prev=$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)
+          {
+            echo "## What's new"
+            echo
+            git log --no-merges --pretty='- %s' ${prev:+$prev..}$tag
+            echo
+            echo "**Windows:** download \`ruben-term-${tag#v}-setup.exe\` and open it."
+            echo "**macOS:** download \`ruben-term-mac.zip\`, unzip it and drag ruben-term to Applications."
+          } > notes.md
+          cat notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          tag=${GITHUB_REF#refs/tags/}
+          gh release create "$tag" --repo "$RELEASES_REPO" --title "ruben-term ${tag#v}" --notes-file notes.md \
+            dist/ruben-term-windows/ruben-term-*-setup.exe dist/ruben-term-mac/ruben-term-mac.zip

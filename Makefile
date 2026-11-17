@@ -10,6 +10,7 @@ help:
 	@echo "make run        WSL: build and start it"
 	@echo "make test       go vet + the tests"
 	@echo "make tools      install the wails command"
+	@echo "make release V=1.2.3   tag v1.2.3 and push it: CI publishes the installers"
 
 tools:
 	go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
@@ -34,4 +35,12 @@ test:
 	GOOS=windows go vet ./...
 	go test ./...
 
-.PHONY: help tools windows mac install uninstall run test
+# The tag starts .github/workflows/build.yml, which builds the installer and publishes
+# it to imruben/ruben-term-releases; installed apps then offer to update.
+release:
+	@echo "$(V)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "usage: make release V=1.2.3"; exit 1; }
+	@git diff --quiet HEAD || { echo "commit your changes first"; exit 1; }
+	git tag -a v$(V) -m "ruben-term $(V)"
+	git push origin main v$(V)
+
+.PHONY: help tools windows mac install uninstall run test release

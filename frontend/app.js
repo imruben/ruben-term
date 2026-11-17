@@ -174,7 +174,7 @@ function makePane(tab, opts) {
     windowsPty: boot.platform === 'windows' ? { backend: 'conpty', buildNumber: boot.windowsBuild } : undefined,
   });
   const p = {
-    key: ++seq, id: null, tab, profileId: opts.profileId, el: el('div', { class: 'leaf' }),
+    key: ++seq, id: null, tab, profileId: opts.profileId, el: el('div', { class: 'leaf' }), host: el('div', { class: 'host' }),
     term, fit: new FitAddon.FitAddon(), search: new SearchAddon.SearchAddon(),
     label: opts.label || prof.name, title: '', cwd: opts.cwd || '',
     unacked: 0, born: Date.now(), dead: false, gone: false,
@@ -184,6 +184,7 @@ function makePane(tab, opts) {
     restore: opts.restore || null,
   };
   p.el.style.flexGrow = '1';
+  p.el.append(p.host);
   byLeaf.set(p.el, p);
   tab.panes.push(p);
   term.loadAddon(p.fit);
@@ -200,7 +201,7 @@ function makePane(tab, opts) {
 // Opens the terminal of a pane that is already in the layout and starts its shell.
 async function startPane(p, opts) {
   const term = p.term;
-  term.open(p.el);
+  term.open(p.host);
   try {
     const gl = new WebglAddon.WebglAddon();
     gl.onContextLoss(() => gl.dispose());   // falls back to the DOM renderer
@@ -1195,6 +1196,7 @@ function paletteSource() {
     { kind: 'app', label: 'Add a project folder', hint: 'Settings · Projects', search: 'root', run: () => openSettings('projects') },
     { kind: 'app', label: 'Open the config file', hint: boot.configPath, run: () => run('configFile') },
     { kind: 'app', label: 'Reload the config', run: () => reloadConfig() },
+    { kind: 'app', label: 'Check for updates', hint: 'you have ' + boot.version, search: 'version upgrade release', run: () => checkUpdate(true) },
   );
   const first = (cfg.launchers || [])[0];
   for (const p of k.projects || []) {
@@ -1571,6 +1573,40 @@ $('settings-save').addEventListener('click', saveSettings);
 $('settings-file').addEventListener('click', () => { closeSettings(); run('configFile'); });
 $('settings').addEventListener('mousedown', (ev) => { if (ev.target === $('settings')) closeSettings(); });
 
+// ───────────────────────── updates ─────────────────────────
+
+// A few seconds after it starts, and then every 6 hours, the app asks GitHub for the
+// latest release. A newer one shows #update; "Later" stays quiet about that version
+// until it is asked for from the palette. On Windows "Update now" downloads and runs
+// the installer, which reopens the app with the same tabs; on macOS it opens the page.
+let update = null;
+async function checkUpdate(asked) {
+  try { update = await api.CheckUpdate(); } catch (err) { if (asked) toast(err); return; }
+  if (!update.newer) {
+    if (asked) toast(update.current === 'dev'
+      ? 'This is a development build: it does not update itself.'
+      : `ruben-term ${update.current} is the latest version.`, true);
+    return;
+  }
+  if (!asked && stored('skipUpdate', '') === update.latest) return;
+  $('update-text').textContent = `ruben-term ${update.latest} is available (you have ${update.current}).`;
+  $('update-go').textContent = update.canInstall ? 'Update now' : 'Download';
+  $('update-go').disabled = false;
+  $('update').hidden = false;
+}
+$('update-later').addEventListener('click', () => { store('skipUpdate', update.latest); $('update').hidden = true; });
+$('update-notes').addEventListener('click', () => { if (update.page) api.OpenURL(update.page); });
+$('update-go').addEventListener('click', async () => {
+  if (!update.canInstall) { api.OpenURL(update.page); $('update').hidden = true; return; }
+  $('update-go').disabled = true;
+  $('update-text').textContent = `Downloading ruben-term ${update.latest}… the app will restart.`;
+  try { await api.InstallUpdate(); } catch (err) {
+    toast(err);
+    $('update-go').disabled = false;
+    $('update-text').textContent = `ruben-term ${update.latest} is available (you have ${update.current}).`;
+  }
+});
+
 // ───────────────────────── start ─────────────────────────
 
 (async function start() {
@@ -1590,6 +1626,8 @@ $('settings').addEventListener('mousedown', (ev) => { if (ev.target === $('setti
   saveSoon();
   if (VIEWS.includes(cfg.panel)) { showView(cfg.panel); if (cur()) cur().term.focus(); }
   autorun(boot.autorun);
+  setTimeout(() => checkUpdate(false), 5000);
+  setInterval(() => checkUpdate(false), 6 * 3600 * 1000);
 })();
 
 // Windows: the window has no frame, so it is resized from #grips. Wails' own edge
