@@ -290,3 +290,68 @@ func setEnv(env []string, k, v string) []string {
 	}
 	return out
 }
+
+// dialogDir is where the folder dialog starts: the home folder of the environment, as
+// Windows sees it for a WSL distro (\\wsl.localhost\<distro>\home\…).
+func (e *environment) dialogDir() string {
+	if e.home == "" {
+		return ""
+	}
+	if e.isWSL() {
+		return `\\wsl.localhost\` + e.Distro + strings.ReplaceAll(e.home, "/", `\`)
+	}
+	return e.home
+}
+
+// fromHostPath turns a path the system dialog returned into one for this environment.
+func (e *environment) fromHostPath(p string) string {
+	if e.isWSL() {
+		return shortenHome(e.home, wslPath(p), false)
+	}
+	return shortenHome(e.home, p, e.Kind == "windows")
+}
+
+// wslPath is the path inside WSL of a Windows path: \\wsl.localhost\Ubuntu\home\me (or
+// \\wsl$\…) is /home/me, C:\Users\me is /mnt/c/Users/me.
+func wslPath(p string) string {
+	slashed := strings.ReplaceAll(p, `\`, "/")
+	lower := strings.ToLower(slashed)
+	for _, pre := range []string{"//wsl.localhost/", "//wsl$/"} {
+		if strings.HasPrefix(lower, pre) {
+			rest := slashed[len(pre):]
+			if i := strings.Index(rest, "/"); i >= 0 {
+				return strings.TrimRight(rest[i:], "/")
+			}
+			return "/"
+		}
+	}
+	if len(slashed) >= 2 && slashed[1] == ':' {
+		drive := strings.ToLower(slashed[:1])
+		return strings.TrimRight("/mnt/"+drive+slashed[2:], "/")
+	}
+	return slashed
+}
+
+// shortenHome writes the home folder as ~ (with / after it, which every environment
+// understands). fold: compare without case and accept \ (Windows).
+func shortenHome(home, p string, fold bool) string {
+	if home == "" {
+		return p
+	}
+	h, q := home, p
+	if fold {
+		h, q = strings.ToLower(strings.ReplaceAll(h, `\`, "/")), strings.ToLower(strings.ReplaceAll(q, `\`, "/"))
+	}
+	h = strings.TrimRight(h, "/")
+	if q == h {
+		return "~"
+	}
+	if strings.HasPrefix(q, h+"/") {
+		rest := p[len(h)+1:]
+		if fold {
+			rest = strings.ReplaceAll(rest, `\`, "/")
+		}
+		return "~/" + rest
+	}
+	return p
+}

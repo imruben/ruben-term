@@ -18,10 +18,11 @@ rest is Go ([Wails](https://wails.io)).
 | **Launchers** | The buttons at the top right (`Claude`, `opencode`: yours to change). Each opens a new tab **in the current folder** and runs its command; when the program ends you are left in the shell. |
 | **Command palette** | `Ctrl+Shift+P` (`⌘K`). Type to find a launcher, an SSH host, a project, a port or an action. On a project, `Shift+Enter` opens it with the first launcher. |
 | **Ports** | Its own panel (`Ctrl+Shift+1`). What is listening, which program, and **which project it runs in**; ports published by Docker show the container. Click to open `http://localhost:<port>`, `stop` to end the program (asks once; `Shift`+click is `kill -9`). |
-| **SSH** | Its own panel (`Ctrl+Shift+2`). The hosts of `~/.ssh/config`. Click: `ssh <host>` in a new tab. |
-| **Projects** | Its own panel (`Ctrl+Shift+3`). One group per folder of `projectRoots` (`projects`, `mytheresa`…), git repos first; click a group's name to fold it. Type to filter (`Enter` opens the first match; a group's name shows only that group). Click a project: a tab there. Hover: open it with a launcher. |
+| **SSH** | Its own panel (`Ctrl+Shift+2`). The servers you added in Settings, then the hosts of `~/.ssh/config`. Click: `ssh` to it in a new tab. |
+| **Projects** | Its own panel (`Ctrl+Shift+3`). One group per project folder of Settings, git repos first; click a group's name to fold it. Type to filter (`Enter` opens the first match; a group's name shows only that group). Click a project: a tab there. Hover: open it with a launcher. |
 | **Git shortcuts** | `gst`, `gl`, `gp`, `gco`, `gpr`, `gprc`, `gci`… the same names as in terminal-setup. `ghelp` lists them. |
 | **Shells** | Windows: every WSL distro, PowerShell and cmd (the `⌄` next to `+`). macOS: your login shell. The panels look at the machine of the pane you are in: WSL ports in a WSL tab, Windows ports in a PowerShell tab. |
+| **Settings** | `Ctrl+,` (`⌘,`) or the gear: project folders (with a folder picker), servers, launchers, theme, font, default shell. Saved to `config.json`, so a new computer is set up from the app. |
 | **Also** | `code .` and `open <file|folder|url>` from WSL, find in the scrollback, clickable links, copy/paste, zoom, dark and light themes, a dot on a tab that rang the bell while you were elsewhere. |
 
 ## Keys
@@ -41,7 +42,7 @@ rest is Go ([Wails](https://wails.io)).
 | Find | `Ctrl+Shift+F` | `⌘F` |
 | Copy · paste | `Ctrl+Shift+C` · `Ctrl+Shift+V`; also `Ctrl+C` with a selection, `Ctrl+V`, and right click | `⌘C` · `⌘V` |
 | Bigger · smaller · normal text | `Ctrl++` · `Ctrl+-` · `Ctrl+0` | `⌘+` · `⌘-` · `⌘0` |
-| Open the config file | `Ctrl+,` | `⌘,` |
+| Settings | `Ctrl+,` (`Ctrl+S` saves) | `⌘,` (`⌘S` saves) |
 
 Everything else goes to the shell: `Ctrl+C`, `Ctrl+R`, `Ctrl+W`, `Alt+…` work as always.
 
@@ -84,7 +85,8 @@ function to `zsh/local.zsh`.
 
 ## Config
 
-`Ctrl+,` opens it (then *Reload the config* in the palette):
+Everything here can be changed in **Settings** (`Ctrl+,`), which writes this file. To
+edit it by hand: *Open the config file* in the palette, then *Reload the config*.
 
 - Windows: `%AppData%\ruben-term\config.json`
 - macOS: `~/.config/ruben-term/config.json`
@@ -107,8 +109,11 @@ function to `zsh/local.zsh`.
     { "name": "Claude (continue)", "command": "claude --continue" },
     { "name": "Dev server", "command": "pnpm dev" }
   ],
-  "projectRoots": ["~/dev/projects", "~/mytheresa"],   // each one is a group in Projects
-  "panel": ""                         // the panel to start with: ports · ssh · projects · none
+  "projectRoots": ["~/dev/projects"], // each one is a group in Projects (empty on a new install)
+  "panel": "",                        // the panel to start with: ports · ssh · projects · none
+  "servers": [                        // SSH servers kept here, not in ~/.ssh/config
+    { "name": "vps", "hostName": "203.0.113.7", "user": "deploy", "port": "2222", "identity": "~/.ssh/id_ed25519" }
+  ]
 }
 ```
 
@@ -151,7 +156,7 @@ profile.go       the shells of this machine; how to run things inside WSL
 session.go       one pty per tab, with flow control
 ports.go         listeners: ss (Linux), lsof (macOS), netstat (Windows), docker ps
 devinfo.go       ~/.ssh/config and the project folders
-config.go        config.json and the window size
+config.go        config.json (read, checked, saved by Settings) and the window size
 shell/           what ruben-term's zsh and bash load (installed in ~/.config/ruben-term);
                  git.zsh: the git and GitHub shortcuts
 frontend/        index.html, style.css, app.js (tabs, panes, panels, palette): no build step.
@@ -179,5 +184,5 @@ WSLENV=RUBEN_TERM_AUTORUN/w ./build/bin/ruben-term.exe
 
 ## Not there yet
 
-Restoring the tabs and panes of the last run, dragging tabs to reorder them, moving a
-pane to another place, and a settings screen (the config is a file).
+Restoring the tabs and panes of the last run, dragging tabs to reorder them, and moving a
+pane to another place.

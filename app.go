@@ -115,6 +115,61 @@ func (a *App) ReloadConfig() Boot {
 	return a.Bootstrap()
 }
 
+// SaveConfig writes what the Settings screen changed to config.json and uses it.
+func (a *App) SaveConfig(cfg Config) (Boot, error) {
+	cfg = normalize(cfg)
+	if err := saveConfig(cfg); err != nil {
+		return a.Bootstrap(), err
+	}
+	a.mu.Lock()
+	a.cfg = cfg
+	a.cfgErr = ""
+	a.mu.Unlock()
+	return a.Bootstrap(), nil
+}
+
+// DefaultConfig is what a new install starts with (Settings → Reset).
+func (a *App) DefaultConfig() Config { return defaultConfig() }
+
+// PickFolder asks for a folder with the system's dialog and returns it as the shell of
+// that profile sees it: a WSL tab gets /home/… or /mnt/c/…, and the home folder is ~.
+// Empty when the dialog was cancelled.
+func (a *App) PickFolder(profileID string) (string, error) {
+	return a.pick(profileID, true)
+}
+
+// PickFile is PickFolder for a file (an SSH key).
+func (a *App) PickFile(profileID string) (string, error) {
+	return a.pick(profileID, false)
+}
+
+func (a *App) pick(profileID string, folder bool) (string, error) {
+	e, err := a.env(profileID)
+	if err != nil {
+		return "", err
+	}
+	_ = e.prepare() // learns the home folder; without it the path is just not shortened
+	opts := wails.OpenDialogOptions{Title: "Choose a folder", ShowHiddenFiles: !folder}
+	if !folder {
+		opts.Title = "Choose a file"
+	}
+	if start := e.dialogDir(); start != "" {
+		if st, err := os.Stat(start); err == nil && st.IsDir() {
+			opts.DefaultDirectory = start
+		}
+	}
+	var p string
+	if folder {
+		p, err = wails.OpenDirectoryDialog(a.ctx, opts)
+	} else {
+		p, err = wails.OpenFileDialog(a.ctx, opts)
+	}
+	if err != nil || p == "" {
+		return "", err
+	}
+	return e.fromHostPath(p), nil
+}
+
 // OpenConfig opens config.json in the system's editor for .json files.
 func (a *App) OpenConfig() error {
 	var cmd *exec.Cmd
@@ -201,10 +256,10 @@ func (a *App) SSHHosts(profileID string) ([]SSHHost, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 10*time.Second)
 	defer cancel()
 	hosts, err := e.sshHosts(ctx)
-	if hosts == nil {
-		hosts = []SSHHost{}
-	}
-	return hosts, err
+	a.mu.Lock()
+	servers := append([]Server(nil), a.cfg.Servers...)
+	a.mu.Unlock()
+	return mergeHosts(servers, hosts), err
 }
 
 func (a *App) Projects(profileID string) ([]Project, error) {

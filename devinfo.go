@@ -8,12 +8,31 @@ import (
 	"strings"
 )
 
-// SSHHost is a Host of ~/.ssh/config.
+// SSHHost is a Host of ~/.ssh/config, or a server added in Settings (Saved).
 type SSHHost struct {
 	Name     string `json:"name"`
 	HostName string `json:"hostName"`
 	User     string `json:"user"`
 	Port     string `json:"port"`
+	Identity string `json:"identity,omitempty"`
+	Saved    bool   `json:"saved,omitempty"`
+}
+
+// mergeHosts puts the servers of Settings first; a host of ~/.ssh/config with the same
+// name is left out.
+func mergeHosts(servers []Server, fromFile []SSHHost) []SSHHost {
+	out := make([]SSHHost, 0, len(servers)+len(fromFile))
+	seen := map[string]bool{}
+	for _, s := range servers {
+		seen[s.Name] = true
+		out = append(out, SSHHost{Name: s.Name, HostName: s.HostName, User: s.User, Port: s.Port, Identity: s.Identity, Saved: true})
+	}
+	for _, h := range fromFile {
+		if !seen[h.Name] {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // parseSSHConfig lists the hosts you can name: patterns (*, ?, !) are rules, not hosts.

@@ -251,3 +251,59 @@ func TestSessionClose(t *testing.T) {
 		t.Fatal("closing did not end the program")
 	}
 }
+
+func TestWSLPath(t *testing.T) {
+	cases := map[string]string{
+		`\\wsl.localhost\Ubuntu-24.04\home\me\dev`: "/home/me/dev",
+		`\\wsl$\Ubuntu\home\me\`:                   "/home/me",
+		`\\wsl.localhost\Ubuntu`:                   "/",
+		`C:\Users\me\code`:                         "/mnt/c/Users/me/code",
+		`D:\`:                                      "/mnt/d",
+		"/already/posix":                           "/already/posix",
+	}
+	for in, want := range cases {
+		if got := wslPath(in); got != want {
+			t.Errorf("wslPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestShortenHome(t *testing.T) {
+	if got := shortenHome("/home/me", "/home/me/dev/projects", false); got != "~/dev/projects" {
+		t.Errorf("got %q", got)
+	}
+	if got := shortenHome("/home/me", "/home/me", false); got != "~" {
+		t.Errorf("got %q", got)
+	}
+	if got := shortenHome("/home/me", "/home/meow", false); got != "/home/meow" {
+		t.Errorf("got %q", got)
+	}
+	if got := shortenHome(`C:\Users\Me`, `c:\users\me\code\x`, true); got != "~/code/x" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestNormalizeAndMergeHosts(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.ProjectRoots = []string{" ~/dev ", "", "~/dev", "~/work"}
+	cfg.Launchers = []Launcher{{Name: "", Command: "htop"}, {Name: "empty", Command: " "}}
+	cfg.Servers = []Server{{Name: "", HostName: "203.0.113.7", User: "deploy"}, {Name: "nohost"}}
+	cfg.Theme, cfg.FontSize = "pink", 99
+	got := normalize(cfg)
+	if len(got.ProjectRoots) != 2 || got.ProjectRoots[0] != "~/dev" || got.ProjectRoots[1] != "~/work" {
+		t.Errorf("roots: %q", got.ProjectRoots)
+	}
+	if len(got.Launchers) != 1 || got.Launchers[0].Name != "htop" {
+		t.Errorf("launchers: %+v", got.Launchers)
+	}
+	if len(got.Servers) != 1 || got.Servers[0].Name != "203.0.113.7" {
+		t.Errorf("servers: %+v", got.Servers)
+	}
+	if got.Theme != "dark" || got.FontSize != 13 {
+		t.Errorf("theme %q size %d", got.Theme, got.FontSize)
+	}
+	hosts := mergeHosts([]Server{{Name: "vps", HostName: "1.2.3.4"}}, []SSHHost{{Name: "vps"}, {Name: "gh"}})
+	if len(hosts) != 2 || !hosts[0].Saved || hosts[0].HostName != "1.2.3.4" || hosts[1].Name != "gh" {
+		t.Errorf("hosts: %+v", hosts)
+	}
+}

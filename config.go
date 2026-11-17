@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // Launcher is a program that opens in a new tab, in the folder of the tab you are on.
@@ -31,6 +32,18 @@ type Config struct {
 	ProjectRoots []string `json:"projectRoots"`
 	// Panel is the side panel to start with: ports, ssh, projects, or empty for none.
 	Panel string `json:"panel"`
+	// Servers are SSH hosts added in Settings, shown in the SSH panel before the hosts
+	// of ~/.ssh/config.
+	Servers []Server `json:"servers"`
+}
+
+// Server is an SSH host kept in config.json, so it does not need ~/.ssh/config.
+type Server struct {
+	Name     string `json:"name"`
+	HostName string `json:"hostName"`
+	User     string `json:"user"`
+	Port     string `json:"port"`
+	Identity string `json:"identity"` // a key file, ~ allowed; empty: ssh's default
 }
 
 func defaultConfig() Config {
@@ -48,8 +61,9 @@ func defaultConfig() Config {
 			{Name: "Claude", Command: "claude"},
 			{Name: "opencode", Command: "opencode"},
 		},
-		ProjectRoots: []string{"~/dev/projects", "~/mytheresa"},
+		ProjectRoots: []string{},
 		Panel:        "",
+		Servers:      []Server{},
 	}
 }
 
@@ -84,19 +98,89 @@ func loadConfig() (Config, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return defaultConfig(), err
 	}
+	return normalize(cfg), nil
+}
+
+// normalize fixes what is out of range and drops empty entries.
+func normalize(cfg Config) Config {
+	def := defaultConfig()
 	if cfg.FontSize < 6 || cfg.FontSize > 40 {
-		cfg.FontSize = 13
+		cfg.FontSize = def.FontSize
 	}
 	if cfg.LineHeight < 1 || cfg.LineHeight > 2 {
-		cfg.LineHeight = 1.2
+		cfg.LineHeight = def.LineHeight
 	}
 	if cfg.Scrollback < 0 {
-		cfg.Scrollback = 10000
+		cfg.Scrollback = def.Scrollback
+	}
+	if strings.TrimSpace(cfg.FontFamily) == "" {
+		cfg.FontFamily = def.FontFamily
+	}
+	switch cfg.Theme {
+	case "dark", "light", "system":
+	default:
+		cfg.Theme = def.Theme
+	}
+	switch cfg.Panel {
+	case "", "ports", "ssh", "projects":
+	default:
+		cfg.Panel = ""
 	}
 	if cfg.Colors == nil {
 		cfg.Colors = map[string]string{}
 	}
-	return cfg, nil
+	roots := []string{}
+	seen := map[string]bool{}
+	for _, r := range cfg.ProjectRoots {
+		r = strings.TrimSpace(r)
+		if r != "" && !seen[r] {
+			seen[r] = true
+			roots = append(roots, r)
+		}
+	}
+	cfg.ProjectRoots = roots
+	launchers := []Launcher{}
+	for _, l := range cfg.Launchers {
+		l.Name, l.Command = strings.TrimSpace(l.Name), strings.TrimSpace(l.Command)
+		if l.Command == "" {
+			continue
+		}
+		if l.Name == "" {
+			l.Name = l.Command
+		}
+		launchers = append(launchers, l)
+	}
+	cfg.Launchers = launchers
+	servers := []Server{}
+	for _, s := range cfg.Servers {
+		s.Name, s.HostName = strings.TrimSpace(s.Name), strings.TrimSpace(s.HostName)
+		s.User, s.Port, s.Identity = strings.TrimSpace(s.User), strings.TrimSpace(s.Port), strings.TrimSpace(s.Identity)
+		if s.HostName == "" {
+			continue
+		}
+		if s.Name == "" {
+			s.Name = s.HostName
+		}
+		servers = append(servers, s)
+	}
+	cfg.Servers = servers
+	return cfg
+}
+
+// saveConfig writes config.json (what Settings changed).
+func saveConfig(cfg Config) error {
+	if err := os.MkdirAll(configDir(), 0o755); err != nil {
+		return err
+	}
+	out, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := configPath() + ".tmp"
+	if err := os.WriteFile(tmp, append(out, '\n'), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, configPath())
 }
 
 // windowState is the size the window had when it was last closed.

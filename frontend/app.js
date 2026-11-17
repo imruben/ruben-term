@@ -637,7 +637,8 @@ function run(action) {
     case 'zoomIn': zoomText(1); break;
     case 'zoomOut': zoomText(-1); break;
     case 'zoomReset': zoomText(0); break;
-    case 'config': api.OpenConfig().catch(toast); break;
+    case 'config': toggleSettings(); break;
+    case 'configFile': api.OpenConfig().catch(toast); break;
     case 'reload': reloadConfig(); break;
     default:
       if (action.startsWith('tab')) { const n = tabs[Number(action.slice(3)) - 1]; if (n) activate(n); }
@@ -666,6 +667,12 @@ function onTermKey(p, ev) {
 // The same shortcuts when the focus is somewhere else (a panel, the bar).
 window.addEventListener('keydown', (ev) => {
   if (ev.target.closest && ev.target.closest('.xterm')) return;   // the terminal handles its own
+  if (!$('settings').hidden) {                            // the dialog keeps its keys
+    if (ev.key === 'Escape') { ev.preventDefault(); closeSettings(); return; }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveSettings(); return; }
+    if (shortcut(ev) === 'config') { ev.preventDefault(); closeSettings(); }
+    return;
+  }
   if (ev.key === 'Escape') {
     if (!$('palette').hidden) { closePalette(); return; }
     if (!$('menu').hidden) { closeMenu(); return; }
@@ -881,20 +888,40 @@ function renderPorts() {
 function renderSSH() {
   if (view !== 'ssh') return;
   const pid = panelProfile();
-  fillRows('ssh', 'ssh-count', known(pid).ssh, 'no hosts in ~/.ssh/config', (h) => {
+  fillRows('ssh', 'ssh-count', known(pid).ssh, 'no servers yet', (h) => {
     const sub = [h.user, h.hostName && h.hostName !== h.name ? h.hostName : ''].filter(Boolean).join('@');
     return el('li', { class: 'row' },
-      el('button', { class: 'main', title: `ssh ${h.name} · in a new tab`, onclick: () => ssh(pid, h) },
+      el('button', { class: 'main', title: `${sshCommand(pid, h)} · in a new tab`, onclick: () => ssh(pid, h) },
         el('span', { class: 'name', text: h.name }),
         sub ? el('span', { class: 'sub', text: sub }) : null),
+      h.saved ? el('div', { class: 'acts' }, el('button', { class: 'act', text: 'edit', title: 'Edit in Settings', onclick: () => openSettings('servers') })) : null,
     );
   });
+  addSettingsLink('ssh', 'Add a server', 'servers');
+}
+// A host of ~/.ssh/config is reached by its name; a server of Settings by its address.
+function sshCommand(profileId, h) {
+  const posix = profile(profileId).kind === 'posix';
+  const q = (s) => (posix ? (/^[\w@.:\/~+-]+$/.test(s) && !s.startsWith('~') ? s : s.startsWith('~/') ? '~/' + shq(s.slice(2)) : shq(s)) : (/\s/.test(s) ? `"${s}"` : s));
+  if (!h.saved) return 'ssh ' + q(h.name);
+  const args = ['ssh'];
+  if (h.port && h.port !== '22') args.push('-p', q(h.port));
+  if (h.identity) args.push('-i', q(h.identity));
+  args.push(q(h.user ? `${h.user}@${h.hostName}` : h.hostName));
+  return args.join(' ');
 }
 function ssh(profileId, h) {
-  openTab({ profileId, run: 'ssh ' + (profile(profileId).kind === 'posix' ? shq(h.name) : h.name), label: h.name });
+  openTab({ profileId, run: sshCommand(profileId, h), label: h.name });
+}
+// A link to Settings under an empty panel.
+function addSettingsLink(listId, text, section) {
+  const empty = $(listId).querySelector('.empty');
+  if (empty && !empty.querySelector('.link') && empty.textContent !== 'looking…') {
+    empty.append(' · ', el('button', { class: 'link', text, onclick: () => openSettings(section) }));
+  }
 }
 
-// Projects: one group per folder of projectRoots (projects, mytheresa…). A group
+// Projects: one group per project folder of Settings (projectRoots). A group
 // folds when you click its name; the filter looks in all of them.
 function renderProjects() {
   if (view !== 'projects') return;
@@ -908,7 +935,8 @@ function renderProjects() {
   const shown = all.filter((p) => words.every((w) => p.name.toLowerCase().includes(w) || p.root.toLowerCase() === w));
   $('projects-count').textContent = words.length ? `${shown.length} of ${all.length}` : (all.length ? String(all.length) : '');
   if (!shown.length) {
-    box.replaceChildren(el('div', { class: 'empty', text: all.length ? 'nothing matches' : 'no folders in projectRoots' }));
+    box.replaceChildren(el('div', { class: 'empty', text: all.length ? 'nothing matches' : cfg.projectRoots.length ? 'no folders found' : 'no project folders yet' }));
+    if (!all.length) addSettingsLink('projects', cfg.projectRoots.length ? 'Settings' : 'Add one', 'projects');
     return;
   }
   const groups = [];
@@ -978,12 +1006,15 @@ function paletteSource() {
   items.push(
     { kind: 'tab', label: 'Close tab', hint: 'with all its panes', run: () => run('closeTab') },
     { kind: 'panel', label: 'Ports', hint: 'what is listening', keys: (isMac ? '⌃' : mod) + '1', run: () => showView('ports') },
-    { kind: 'panel', label: 'SSH', hint: 'hosts of ~/.ssh/config', keys: (isMac ? '⌃' : mod) + '2', run: () => showView('ssh') },
+    { kind: 'panel', label: 'SSH', hint: 'your servers and ~/.ssh/config', keys: (isMac ? '⌃' : mod) + '2', run: () => showView('ssh') },
     { kind: 'panel', label: 'Projects', hint: 'your project folders', keys: (isMac ? '⌃' : mod) + '3', run: () => showView('projects') },
     { kind: 'view', label: 'Find in the terminal', keys: mod + 'F', run: () => openFind() },
     { kind: 'view', label: 'Bigger text', keys: ctl + '+', run: () => zoomText(1) },
     { kind: 'view', label: 'Smaller text', keys: ctl + '-', run: () => zoomText(-1) },
-    { kind: 'app', label: 'Open the config file', hint: boot.configPath, keys: ctl + ',', run: () => api.OpenConfig().catch(toast) },
+    { kind: 'app', label: 'Settings', hint: 'project folders, servers, launchers, look', keys: ctl + ',', run: () => openSettings() },
+    { kind: 'app', label: 'Add a server', hint: 'Settings · Servers', search: 'vps ssh host', run: () => openSettings('servers', true) },
+    { kind: 'app', label: 'Add a project folder', hint: 'Settings · Projects', search: 'root', run: () => openSettings('projects') },
+    { kind: 'app', label: 'Open the config file', hint: boot.configPath, run: () => run('configFile') },
     { kind: 'app', label: 'Reload the config', run: () => reloadConfig() },
   );
   const first = (cfg.launchers || [])[0];
@@ -1082,17 +1113,203 @@ $('palette').addEventListener('mousedown', (ev) => { if (ev.target === $('palett
 
 // ───────────────────────── config ─────────────────────────
 
-async function reloadConfig() {
-  boot = await api.ReloadConfig();
+// Uses a new Boot (after a reload or a save): the bar, the look, the panels.
+function useBoot(b) {
+  boot = b;
   cfg = boot.config;
   fontSize = cfg.fontSize;
   cache.clear();
   renderBar();
   applyLook();
   refreshPanel();
+}
+async function reloadConfig() {
+  useBoot(await api.ReloadConfig());
   if (boot.configError) toast(`config.json: ${boot.configError}\nUsing the defaults.`);
   else toast('Config reloaded', true);
 }
+
+// ───────────────────────── settings ─────────────────────────
+// A form over config.json: what you change is a draft until Save. Paths are as the
+// shell of the pane you are in sees them (a WSL tab: /home/…, ~ for home).
+
+const SECTIONS = [
+  ['general', 'General'], ['projects', 'Projects'], ['servers', 'Servers'], ['launchers', 'Launchers'],
+];
+let draft = null;
+let section = 'general';
+
+const clone = (o) => JSON.parse(JSON.stringify(o));
+function field(label, control, help) {
+  const id = 's-' + (++seq);
+  control.id = control.id || id;
+  return [el('label', { for: control.id, text: label }),
+    el('div', { class: 's-field' }, control, help ? el('span', { class: 'help', text: help }) : null)];
+}
+function input(value, oninput, props) {
+  return el('input', Object.assign({ type: 'text', value: value ?? '', spellcheck: 'false', autocomplete: 'off',
+    oninput: (ev) => oninput(ev.target.value) }, props || {}));
+}
+function check(label, value, onchange) {
+  return el('label', { class: 's-check' },
+    el('input', { type: 'checkbox', checked: !!value, onchange: (ev) => onchange(ev.target.checked) }), label);
+}
+function select(value, options, onchange) {
+  const s = el('select', { onchange: (ev) => onchange(ev.target.value) },
+    ...options.map(([v, t]) => el('option', { value: v, text: t })));
+  s.value = value;
+  return s;
+}
+const xIcon = () => icon('M4 4l8 8M12 4l-8 8');
+function removeBtn(label, onclick) {
+  return el('button', { type: 'button', class: 'btn icon', title: label, 'aria-label': label, onclick }, xIcon());
+}
+function moveBtn(up, disabled, onclick) {
+  return el('button', { type: 'button', class: 'btn icon move', title: up ? 'Move up' : 'Move down', 'aria-label': up ? 'Move up' : 'Move down', disabled, onclick },
+    icon(up ? 'M4 9.5l4-4 4 4' : 'M4 6.5l4 4 4-4'));
+}
+const pickerProfile = () => profile(panelProfile()) || boot.profiles[0];
+
+function renderSettings(focusLast) {
+  $('settings-nav').replaceChildren(...SECTIONS.map(([id, name]) => el('button', {
+    type: 'button', role: 'tab', text: name, 'aria-selected': String(id === section),
+    onclick: () => { section = id; renderSettings(); },
+  })));
+  const body = $('settings-body');
+  body.replaceChildren(...{ general: sGeneral, projects: sProjects, servers: sServers, launchers: sLaunchers }[section]());
+  if (focusLast) {
+    const inputs = body.querySelectorAll('.s-list input[type="text"]');
+    const target = section === 'servers' ? body.querySelector('.s-list .s-card:last-child input') : inputs[inputs.length - 1];
+    if (target) target.focus();
+  }
+}
+
+function sGeneral() {
+  const d = draft;
+  return [el('div', { class: 's-grid' },
+    ...field('Theme', select(d.theme, [['dark', 'Dark'], ['light', 'Light'], ['system', 'Same as the system']], (v) => { d.theme = v; })),
+    ...field('Font size', el('input', { type: 'number', min: 6, max: 40, value: d.fontSize, oninput: (ev) => { d.fontSize = Number(ev.target.value) || 13; } })),
+    ...field('Line height', el('input', { type: 'number', min: 1, max: 2, step: 0.05, value: d.lineHeight, oninput: (ev) => { d.lineHeight = Number(ev.target.value) || 1.2; } })),
+    ...field('Font', input(d.fontFamily, (v) => { d.fontFamily = v; }, { class: 'mono' }), 'A CSS font list: the first one installed is used.'),
+    ...field('Default shell', select(d.defaultProfile && boot.profiles.some((p) => p.id === d.defaultProfile || p.name === d.defaultProfile) ? (boot.profiles.find((p) => p.id === d.defaultProfile || p.name === d.defaultProfile).id) : '',
+      [['', `The first one (${boot.profiles[0] ? boot.profiles[0].name : 'none'})`], ...boot.profiles.map((p) => [p.id, p.name])], (v) => { d.defaultProfile = v; })),
+    ...field('Panel at start', select(d.panel || '', [['', 'None'], ['ports', 'Ports'], ['ssh', 'SSH'], ['projects', 'Projects']], (v) => { d.panel = v; })),
+    ...field('Scrollback', el('input', { type: 'number', min: 0, step: 1000, value: d.scrollback, oninput: (ev) => { d.scrollback = Math.max(0, Number(ev.target.value) || 0); } }), 'Lines kept above the screen.'),
+    el('span'), el('div', { class: 's-field' }, check('Load my ~/.zshrc', d.loadUserRc, (v) => { d.loadUserRc = v; }),
+      el('span', { class: 'help', text: 'Your own lines (PATH, aliases); new tabs only.' })),
+    el('span'), check('Copy on select', d.copyOnSelect, (v) => { d.copyOnSelect = v; }),
+    el('span'), check('Blinking cursor', d.cursorBlink, (v) => { d.cursorBlink = v; }),
+  )];
+}
+
+function sProjects() {
+  const d = draft;
+  const pr = pickerProfile();
+  const list = el('div', { class: 's-list' }, ...(d.projectRoots.length ? d.projectRoots.map((r, i) => el('div', { class: 's-item' },
+    input(r, (v) => { d.projectRoots[i] = v; }, { class: 'mono', placeholder: '~/dev/projects', 'aria-label': 'Folder' }),
+    removeBtn('Remove', () => { d.projectRoots.splice(i, 1); renderSettings(); }),
+  )) : [el('div', { class: 's-empty', text: 'No folders yet.' })]));
+  return [
+    el('p', { class: 's-intro' }, 'Each folder is a group in the Projects panel; the folders inside it are your projects. Paths as ',
+      el('strong', { text: pr ? pr.name : 'the shell' }), ' sees them; ', el('code', { text: '~' }), ' is your home.'),
+    list,
+    el('div', { class: 's-actions' },
+      el('button', { type: 'button', class: 'btn', text: 'Browse…', onclick: async () => {
+        try {
+          const path = await api.PickFolder(pr.id);
+          if (path && !d.projectRoots.includes(path)) { d.projectRoots.push(path); renderSettings(); }
+        } catch (err) { toast(err); }
+      } }),
+      el('button', { type: 'button', class: 'btn small', text: 'Type a path', onclick: () => { d.projectRoots.push(''); renderSettings(true); } })),
+  ];
+}
+
+function sServers() {
+  const d = draft;
+  const pr = pickerProfile();
+  const cards = d.servers.map((s, i) => {
+    const preview = el('div', { class: 'preview' });
+    const upd = (k) => (v) => { s[k] = v; preview.textContent = s.hostName ? sshCommand(pr.id, Object.assign({ saved: true }, s)) : 'ssh …'; };
+    upd('name')(s.name);
+    return el('div', { class: 's-card' },
+      input(s.name, upd('name'), { placeholder: 'Name (vps)', 'aria-label': 'Name' }),
+      input(s.user, upd('user'), { placeholder: 'User (root)', 'aria-label': 'User' }),
+      input(s.port, upd('port'), { placeholder: '22', 'aria-label': 'Port', inputmode: 'numeric' }),
+      el('div', { class: 'row-end' },
+        input(s.hostName, upd('hostName'), { class: 'mono', placeholder: 'Address: 203.0.113.7 or vps.example.com', 'aria-label': 'Address' }),
+        removeBtn('Remove server', () => { d.servers.splice(i, 1); renderSettings(); })),
+      el('div', { class: 'row-end' },
+        input(s.identity, upd('identity'), { class: 'mono', placeholder: 'Key file (optional): ~/.ssh/id_ed25519', 'aria-label': 'Key file' }),
+        el('button', { type: 'button', class: 'btn small', text: 'Browse…', onclick: async () => {
+          try { const f = await api.PickFile(pr.id); if (f) { s.identity = f; renderSettings(); } } catch (err) { toast(err); }
+        } })),
+      preview);
+  });
+  return [
+    el('p', { class: 's-intro' }, 'Servers you reach with SSH: they show first in the SSH panel and the palette, next to the hosts of ',
+      el('code', { text: '~/.ssh/config' }), '. A click opens ', el('code', { text: 'ssh' }), ' in a new tab.'),
+    el('div', { class: 's-list' }, ...(cards.length ? cards : [el('div', { class: 's-empty', text: 'No servers yet.' })])),
+    el('div', { class: 's-actions' }, el('button', { type: 'button', class: 'btn', text: 'Add a server', onclick: () => {
+      d.servers.push({ name: '', hostName: '', user: '', port: '', identity: '' }); renderSettings(true);
+    } })),
+  ];
+}
+
+function sLaunchers() {
+  const d = draft;
+  const n = d.launchers.length;
+  const rows = d.launchers.map((l, i) => el('div', { class: 's-item' },
+    input(l.name, (v) => { l.name = v; }, { placeholder: 'Name', 'aria-label': 'Name', style: 'flex: 0 0 140px' }),
+    input(l.command, (v) => { l.command = v; }, { class: 'mono', placeholder: 'Command: claude --continue', 'aria-label': 'Command' }),
+    moveBtn(true, i === 0, () => { d.launchers.splice(i - 1, 0, d.launchers.splice(i, 1)[0]); renderSettings(); }),
+    moveBtn(false, i === n - 1, () => { d.launchers.splice(i + 1, 0, d.launchers.splice(i, 1)[0]); renderSettings(); }),
+    removeBtn('Remove', () => { d.launchers.splice(i, 1); renderSettings(); })));
+  return [
+    el('p', { class: 's-intro', text: 'Programs that open in a new tab, in the folder you are in. The first three are buttons in the bar; all are in the palette.' }),
+    el('div', { class: 's-list' }, ...(rows.length ? rows : [el('div', { class: 's-empty', text: 'No launchers.' })])),
+    el('div', { class: 's-actions' }, el('button', { type: 'button', class: 'btn', text: 'Add a launcher', onclick: () => {
+      d.launchers.push({ name: '', command: '' }); renderSettings(true);
+    } })),
+  ];
+}
+
+function openSettings(to, addServer) {
+  if (!$('palette').hidden) closePalette();
+  closeMenu();
+  draft = clone(cfg);
+  draft.projectRoots = draft.projectRoots || [];
+  draft.servers = draft.servers || [];
+  draft.launchers = draft.launchers || [];
+  section = to || section;
+  if (addServer) draft.servers.push({ name: '', hostName: '', user: '', port: '', identity: '' });
+  $('settings').hidden = false;
+  renderSettings(!!addServer);
+  if (!addServer) $('settings-nav').querySelector('[aria-selected="true"]').focus();
+}
+function closeSettings() {
+  $('settings').hidden = true;
+  draft = null;
+  if (cur()) cur().term.focus();
+}
+function toggleSettings() { if ($('settings').hidden) openSettings(); else closeSettings(); }
+async function saveSettings() {
+  if (!draft) return;
+  const bad = draft.servers.find((s) => (s.name || s.user || s.port || s.identity) && !s.hostName.trim());
+  if (bad) { section = 'servers'; renderSettings(); toast(`The server ${bad.name || ''} needs an address.`); return; }
+  try {
+    useBoot(await api.SaveConfig(draft));
+    closeSettings();
+    toast('Settings saved', true);
+  } catch (err) {
+    toast(err);
+  }
+}
+$('settings-btn').addEventListener('click', () => toggleSettings());
+$('settings-close').addEventListener('click', closeSettings);
+$('settings-cancel').addEventListener('click', closeSettings);
+$('settings-save').addEventListener('click', saveSettings);
+$('settings-file').addEventListener('click', () => { closeSettings(); run('configFile'); });
+$('settings').addEventListener('mousedown', (ev) => { if (ev.target === $('settings')) closeSettings(); });
 
 // ───────────────────────── start ─────────────────────────
 
