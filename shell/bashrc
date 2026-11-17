@@ -1,0 +1,43 @@
+# ruben-term · bash (managed by the app: your changes go in ~/.config/ruben-term/bash/local.bash)
+
+case $- in *i*) ;; *) return ;; esac
+
+if [ -n "$RUBEN_TERM_INHERIT" ] && [ -r "$HOME/.bashrc" ]; then
+  . "$HOME/.bashrc"
+fi
+
+HISTFILE="$HOME/.config/ruben-term/bash/history"
+HISTSIZE=50000
+HISTFILESIZE=50000
+HISTCONTROL=ignoreboth:erasedups
+shopt -s histappend checkwinsize
+
+_rt_prompt() {
+  local st=$? branch c
+  branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+  if [ $st -eq 0 ]; then c='\[\e[32m\]'; else c='\[\e[31m\]'; fi
+  PS1='\n\[\e[34m\]\w\[\e[0m\]'"${branch:+ \[\e[90m\]on\[\e[0m\] \[\e[35m\]$branch\[\e[0m\]}"'\n'"$c"'❯\[\e[0m\] '
+  printf '\e]7;file://%s%s\e\\' "$HOSTNAME" "${PWD// /%20}"
+  if [ "$PWD" = "$HOME" ]; then printf '\e]0;~\a'; else printf '\e]0;%s\a' "${PWD##*/}"; fi
+  if [ -n "$RUBEN_TERM_RUN" ]; then      # a launcher opened this tab: run it once
+    local cmd=$RUBEN_TERM_RUN
+    unset RUBEN_TERM_RUN
+    history -s -- "$cmd"
+    eval "$cmd"
+  fi
+}
+PROMPT_COMMAND=_rt_prompt
+
+# WSL: `code .` when Windows' PATH is not shared (appendWindowsPath=false)
+if { [ -n "$WSL_DISTRO_NAME" ] || [ -e /proc/sys/fs/binfmt_misc/WSLInterop ]; } && ! command -v code >/dev/null 2>&1; then
+  code() {
+    local bin
+    for bin in /mnt/c/Users/*/AppData/Local/Programs/"Microsoft VS Code"/bin/code \
+               "/mnt/c/Program Files/Microsoft VS Code/bin/code"; do
+      [ -x "$bin" ] && { "$bin" "$@"; return; }
+    done
+    echo "code: VS Code not found under /mnt/c (install it on Windows)" >&2; return 1
+  }
+fi
+
+[ -r "$HOME/.config/ruben-term/bash/local.bash" ] && . "$HOME/.config/ruben-term/bash/local.bash"

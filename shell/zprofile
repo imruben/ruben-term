@@ -1,0 +1,3 @@
+# ruben-term · zsh login (managed by the app)
+# Your ~/.zprofile is where macOS setups put Homebrew's PATH.
+_rt_source_user "$RUBEN_TERM_USER_ZDOTDIR/.zprofile"

@@ -1,0 +1,145 @@
+# ruben-term · zsh (managed by the app: rewritten when it starts)
+#
+#   yours, only for ruben-term ....... $ZDOTDIR/local.zsh   (loaded last, wins)
+#   yours, for every terminal ........ ~/.zshrc             (loaded here without the
+#                                      terminal-setup block; "loadUserRc": false skips it)
+
+[[ -o interactive ]] || return 0
+
+# ── history (its own file) ──────────────────────────────────────
+HISTFILE=$ZDOTDIR/history
+HISTSIZE=50000
+SAVEHIST=50000
+setopt share_history hist_ignore_all_dups hist_ignore_space hist_reduce_blanks extended_history
+setopt auto_cd auto_pushd pushd_ignore_dups interactive_comments no_beep prompt_subst
+
+# ── defaults (your ~/.zshrc can redefine them) ──────────────────
+case $OSTYPE in
+  darwin*) alias ls='ls -G' ;;
+  *)       alias ls='ls --color=auto' ;;
+esac
+alias ll='ls -lah' la='ls -A' grep='grep --color=auto' g='git'
+alias ..='cd ..' ...='cd ../..'
+for _rt_d in $HOME/.local/bin $HOME/bin; do
+  [[ -d $_rt_d && :$PATH: != *:$_rt_d:* ]] && PATH=$PATH:$_rt_d
+done
+unset _rt_d
+
+# ── completion ──────────────────────────────────────────────────
+autoload -Uz compinit add-zsh-hook vcs_info
+() {
+  setopt local_options extended_glob
+  if [[ -n $ZDOTDIR/zcompdump(#qN.mh-24) ]]; then
+    compinit -C -d $ZDOTDIR/zcompdump        # checked today: trust the cache
+  else
+    compinit -d $ZDOTDIR/zcompdump
+  fi
+}
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=*'
+zstyle ':completion:*' list-colors ''
+zstyle ':completion:*:descriptions' format '%F{8}%d%f'
+
+# ── your own ~/.zshrc, minus terminal-setup ─────────────────────
+_rt_source_user "$RUBEN_TERM_USER_ZDOTDIR/.zshrc"
+
+# ── git and GitHub shortcuts: gst, gl, gp, gco, gpr… (ghelp lists them) ──
+[[ -r $ZDOTDIR/git.zsh ]] && source $ZDOTDIR/git.zsh
+
+# ── WSL: Windows programs are not on PATH when /etc/wsl.conf has
+#    appendWindowsPath=false, so the ones worth having are called by their full path ──
+if [[ -n $WSL_DISTRO_NAME || -e /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+  if (( ! $+commands[code] )); then
+    # VS Code: `code .` opens the folder through VS Code's WSL bridge.
+    # Found on first use (user or system install), so startup never touches /mnt/c.
+    code() {
+      local bin
+      for bin in /mnt/c/Users/*/AppData/Local/Programs/"Microsoft VS Code"/bin/code(N) \
+                 "/mnt/c/Program Files/Microsoft VS Code/bin/code"(N); do
+        "$bin" "$@"; return
+      done
+      print -u2 "code: VS Code not found under /mnt/c (install it on Windows)"; return 1
+    }
+  fi
+  if (( ! $+commands[open] )); then
+    # open <file|folder|url>: Windows Explorer, the default program or the browser
+    open() {
+      local target=${1:-.}
+      [[ -e $target ]] && target=$(wslpath -w -- "$target")
+      /mnt/c/Windows/explorer.exe "$target"
+      return 0                                 # explorer.exe answers 1 even when it works
+    }
+  fi
+fi
+
+# ── keys ────────────────────────────────────────────────────────
+bindkey -e
+autoload -Uz up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey '^[[A' up-line-or-beginning-search   '^[OA' up-line-or-beginning-search
+bindkey '^[[B' down-line-or-beginning-search '^[OB' down-line-or-beginning-search
+bindkey '^[[1;5C' forward-word  '^[[1;5D' backward-word      # Ctrl+→ / Ctrl+←
+bindkey '^[[1;3C' forward-word  '^[[1;3D' backward-word      # Alt+→ / Alt+←
+bindkey '^[[H' beginning-of-line '^[[F' end-of-line          # Home / End
+bindkey '^[[3~' delete-char     '^[[3;5~' kill-word          # Del / Ctrl+Del
+bindkey '^H' backward-kill-word                              # Ctrl+Backspace
+bindkey '^[[Z' reverse-menu-complete                         # Shift+Tab
+
+# ── prompt: folder, git branch, ❯ (red after a failed command) ──
+zstyle ':vcs_info:*' enable git
+zstyle ':vcs_info:git:*' check-for-changes true
+zstyle ':vcs_info:git:*' stagedstr '%F{green}+%f'
+zstyle ':vcs_info:git:*' unstagedstr '%F{yellow}*%f'
+zstyle ':vcs_info:git:*' formats ' %F{8}on%f %F{magenta}%b%f%c%u'
+zstyle ':vcs_info:git:*' actionformats ' %F{8}on%f %F{magenta}%b%f %F{red}%a%f%c%u'
+_rt_host=
+[[ -n $SSH_CONNECTION ]] && _rt_host='%F{yellow}%n@%m%f '
+PROMPT=$'\n'"${_rt_host}"$'%F{blue}%~%f${vcs_info_msg_0_}\n%(?.%F{green}.%F{red})❯%f '
+RPROMPT=
+unset _rt_host
+
+# ── what the app reads: the folder (OSC 7) and the tab title ────
+_rt_precmd() {
+  vcs_info
+  print -rn -- $'\e]7;file://'"${HOST}${PWD// /%20}"$'\e\\'
+  print -rn -- $'\e]0;'"${(%):-%1~}"$'\a'
+}
+_rt_preexec() {
+  local cmd=${1%%$'\n'*}
+  print -rn -- $'\e]0;'"${cmd[1,40]}"$'\a'
+}
+add-zsh-hook precmd _rt_precmd
+add-zsh-hook preexec _rt_preexec
+
+# ── a launcher opened this tab (Claude, opencode, ssh…): run it at the first prompt,
+#    and leave you in the shell when it ends ─────────────────────
+if [[ -n $RUBEN_TERM_RUN ]]; then
+  _rt_run() {
+    add-zsh-hook -d precmd _rt_run
+    local cmd=$RUBEN_TERM_RUN
+    unset RUBEN_TERM_RUN
+    print -s -- "$cmd"                 # in the history: ↑ runs it again
+    _rt_preexec "$cmd"
+    eval "$cmd"
+  }
+  add-zsh-hook precmd _rt_run
+fi
+
+# ── extras, only when they are installed ────────────────────────
+(( $+commands[fzf] )) && source <(fzf --zsh 2>/dev/null)
+(( $+commands[zoxide] )) && eval "$(zoxide init zsh)"
+
+[[ -r $ZDOTDIR/local.zsh ]] && source $ZDOTDIR/local.zsh
+
+() {
+  local p f
+  for p in /usr/share /opt/homebrew/share /usr/local/share /usr/share/zsh/plugins; do
+    f=$p/zsh-autosuggestions/zsh-autosuggestions.zsh
+    [[ -r $f ]] && { source $f; break }
+  done
+  for p in /usr/share /opt/homebrew/share /usr/local/share /usr/share/zsh/plugins; do   # last: it wraps the widgets
+    f=$p/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+    [[ -r $f ]] && { source $f; break }
+  done
+}

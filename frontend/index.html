@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ruben-term</title>
+  <link rel="stylesheet" href="vendor/xterm.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="bar">
+    <div id="tabs" role="tablist" aria-label="Tabs"></div>
+    <button id="new-tab" class="icon-btn" title="New tab" aria-label="New tab">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>
+    </button>
+    <button id="profile-btn" class="icon-btn" title="New tab with another shell" aria-label="New tab with another shell" hidden>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5l4 4 4-4"/></svg>
+    </button>
+    <div id="drag"></div>
+    <div id="launchers"></div>
+    <button id="palette-btn" class="icon-btn" title="Commands" aria-label="Commands">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4"/><path d="M10 10l3.5 3.5"/></svg>
+    </button>
+    <div id="views" role="group" aria-label="Side panels">
+      <button class="view-btn" data-view="ports" aria-pressed="false">Ports</button>
+      <button class="view-btn" data-view="ssh" aria-pressed="false">SSH</button>
+      <button class="view-btn" data-view="projects" aria-pressed="false">Projects</button>
+    </div>
+    <div id="win" hidden>
+      <button id="win-min" title="Minimise" aria-label="Minimise"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 5h8"/></svg></button>
+      <button id="win-max" title="Maximise" aria-label="Maximise"><svg viewBox="0 0 10 10" aria-hidden="true"><rect x="1.5" y="1.5" width="7" height="7"/></svg></button>
+      <button id="win-close" title="Close" aria-label="Close"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg></button>
+    </div>
+  </header>
+
+  <main>
+    <section id="terms">
+      <form id="find" hidden>
+        <input id="find-input" type="text" placeholder="Find" spellcheck="false" autocomplete="off" aria-label="Find in the terminal">
+        <button type="button" id="find-prev" class="icon-btn" title="Previous (Shift+Enter)" aria-label="Previous"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 9.5l4-4 4 4"/></svg></button>
+        <button type="submit" id="find-next" class="icon-btn" title="Next (Enter)" aria-label="Next"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5l4 4 4-4"/></svg></button>
+        <button type="button" id="find-close" class="icon-btn" title="Close (Esc)" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+      </form>
+    </section>
+    <aside id="panel" hidden>
+      <section class="view" id="v-ports" hidden aria-label="Ports">
+        <h2><span>Ports</span><span class="count" id="ports-count"></span></h2>
+        <ul id="ports" class="rows"></ul>
+      </section>
+      <section class="view" id="v-ssh" hidden aria-label="SSH">
+        <h2><span>SSH</span><span class="count" id="ssh-count"></span></h2>
+        <ul id="ssh" class="rows"></ul>
+      </section>
+      <section class="view" id="v-projects" hidden aria-label="Projects">
+        <h2><span>Projects</span><span class="count" id="projects-count"></span></h2>
+        <input id="projects-filter" type="text" placeholder="Filter" spellcheck="false" autocomplete="off" aria-label="Filter projects">
+        <div id="projects"></div>
+      </section>
+    </aside>
+  </main>
+
+  <div id="menu" class="menu" hidden role="menu"></div>
+
+  <div id="palette" hidden>
+    <div class="palette-box" role="dialog" aria-label="Commands">
+      <input id="palette-input" type="text" placeholder="Run, open, connect…" spellcheck="false" autocomplete="off" aria-label="Search commands">
+      <ul id="palette-list" role="listbox"></ul>
+      <div class="palette-foot" id="palette-foot"></div>
+    </div>
+  </div>
+
+  <div id="toast" hidden role="status"></div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script src="vendor/addon-webgl.js"></script>
+  <script src="vendor/addon-search.js"></script>
+  <script src="vendor/addon-web-links.js"></script>
+  <script src="vendor/addon-unicode11.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

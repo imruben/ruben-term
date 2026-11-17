@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "ruben-term",
+  "outputfilename": "ruben-term",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "./build",
+  "author": {
+    "name": "Ruben"
+  },
+  "info": {
+    "productName": "ruben-term",
+    "productVersion": "0.1.0",
+    "comments": "A small terminal for developers"
+  }
+}

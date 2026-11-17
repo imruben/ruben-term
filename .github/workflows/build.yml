@@ -1,0 +1,52 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y zsh
+      - run: go vet ./... && GOOS=windows go vet ./... && go test ./...
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
+      - run: wails build -platform windows/amd64 -skipbindings -m -nosyncgomod
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ruben-term-windows
+          path: build/bin/ruben-term.exe
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
+      - run: wails build -platform darwin/universal -skipbindings -m -nosyncgomod
+      - run: go test ./...
+      - run: ditto -c -k --keepParent build/bin/ruben-term.app ruben-term-mac.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ruben-term-mac
+          path: ruben-term-mac.zip

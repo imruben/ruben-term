@@ -1,0 +1,4 @@
+# the shell files are written into WSL and macOS as they are: always unix line ends
+* text=auto eol=lf
+*.png binary
+*.ico binary
