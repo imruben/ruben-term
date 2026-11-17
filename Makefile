@@ -36,7 +36,7 @@ test:
 	go test ./...
 
 # The tag starts .github/workflows/build.yml, which builds the installer and publishes
-# it to imruben/ruben-term-releases; installed apps then offer to update.
+# it as a GitHub release; installed apps then offer to update.
 release:
 	@echo "$(V)" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo "usage: make release V=1.2.3"; exit 1; }
 	@git diff --quiet HEAD || { echo "commit your changes first"; exit 1; }

@@ -23,9 +23,8 @@ import (
 // made by hand is "dev", and a dev build never asks to update.
 var version = "dev"
 
-// The code is private, so the installers are published to a public repo that holds
-// only releases (see .github/workflows/build.yml).
-const releasesRepo = "imruben/ruben-term-releases"
+// The installers are published as releases of this repo (see .github/workflows/build.yml).
+const releasesRepo = "imruben/ruben-term"
 
 // Update is what CheckUpdate found.
 type Update struct {

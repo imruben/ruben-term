@@ -2,9 +2,8 @@ name: build
 
 # Every push: test and build both apps (as workflow artifacts).
 # A tag like v1.2.3: the same, with that version built in, plus the Windows installer,
-# published as a release of the public repo imruben/ruben-term-releases. The installed
-# apps look there for updates (update.go). It needs the secret RELEASES_TOKEN: a
-# fine-grained token with "Contents: read and write" on that repo only.
+# published as a release of this repo. The installed apps look there for updates
+# (update.go).
 # macOS runners can wait a long time for a machine, so the release does not wait for
 # the Mac: it is published with the Windows installer, and the Mac job adds its zip to
 # it when it is done.
@@ -18,9 +17,6 @@ on:
 
 permissions:
   contents: read
-
-env:
-  RELEASES_REPO: imruben/ruben-term-releases
 
 jobs:
   test:
@@ -70,6 +66,8 @@ jobs:
   mac:
     runs-on: macos-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -94,20 +92,22 @@ jobs:
       - name: Add to the release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag=${GITHUB_REF#refs/tags/}
           # the release job creates the release; wait for it (up to 20 minutes)
           for i in $(seq 40); do
-            gh release view "$tag" --repo "$RELEASES_REPO" >/dev/null 2>&1 && break
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
             sleep 30
           done
-          gh release upload "$tag" --repo "$RELEASES_REPO" --clobber ruben-term-mac.zip
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber ruben-term-mac.zip
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [test, windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -131,8 +131,8 @@ jobs:
           cat notes.md
       - name: Publish
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag=${GITHUB_REF#refs/tags/}
-          gh release create "$tag" --repo "$RELEASES_REPO" --title "ruben-term ${tag#v}" --notes-file notes.md \
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "ruben-term ${tag#v}" --notes-file notes.md \
             dist/ruben-term-*-setup.exe

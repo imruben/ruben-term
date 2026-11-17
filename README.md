@@ -72,7 +72,7 @@ only for ruben-term, put it in `~/.config/ruben-term/zsh/local.zsh`.
 ## Install
 
 Download the latest version from the
-[releases page](https://github.com/imruben/ruben-term-releases/releases/latest).
+[releases page](https://github.com/imruben/ruben-term/releases/latest).
 
 **Windows.** Download `ruben-term-<version>-setup.exe` and open it. It installs for
 your user only, so it doesn't ask for administrator rights, and it adds ruben-term to
@@ -107,7 +107,7 @@ make release V=1.2.3   # publish a new version
 ```
 
 `make release` tags the commit and pushes the tag. GitHub Actions then builds the
-Windows installer and the macOS zip and publishes them on the public
-[releases repo](https://github.com/imruben/ruben-term-releases). Installed apps pick
+Windows installer and the macOS zip and publishes them on the
+[releases page](https://github.com/imruben/ruben-term/releases). Installed apps pick
 the new version up from there. Builds made by hand report their version as `dev` and
 never ask to update.
