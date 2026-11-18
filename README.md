@@ -52,12 +52,19 @@ zoom, light and dark themes, and a dot on any tab that wants your attention.
 |---|---|---|
 | New tab | `Ctrl+Shift+T` | `⌘T` |
 | Split right / down | `Ctrl+Shift+D` / `Ctrl+Shift+E` | `⌘D` / `⌘⇧D` |
-| Move between panes | `Ctrl+Alt+arrows` | `⌘⌥arrows` |
+| Move between panes | `Shift+arrows` | `⇧arrows` |
+| Next / previous tab | `Ctrl+Shift+→` / `←` | `⌘⇧→` / `←` |
 | Close pane | `Ctrl+Shift+W` | `⌘W` |
 | Command palette | `Ctrl+Shift+P` | `⌘K` |
 | Ports / SSH / Projects panel | `Ctrl+Shift+1` / `2` / `3` | `⌃1` / `⌃2` / `⌃3` |
 | Find | `Ctrl+Shift+F` | `⌘F` |
 | Settings | `Ctrl+,` | `⌘,` |
+| All the shortcuts | `Ctrl+Shift+/` | `⌘/` |
+
+`Ctrl+Shift+/` (or the keyboard button in the bar) lists every shortcut. `Shift+arrows`
+only move to a pane when there is one on that side, so with a single pane they still
+reach the shell. With a side panel open, `Shift+→` from the rightmost pane moves into
+it: the arrows move around, `Enter` opens, `Esc` goes back to the terminal.
 
 Any other key combination goes straight to the shell, so `Ctrl+C`, `Ctrl+R` and the
 rest behave as usual.

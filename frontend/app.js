@@ -415,9 +415,11 @@ function nearest(p, panes) {
 }
 
 // Moves to the pane on that side: the closest one, preferring the one facing this one.
+// False when there is none.
 function focusSide(dx, dy) {
   const p = cur();
-  if (!p || p.tab.panes.length < 2) return;
+  if (!p || p.tab.panes.length < 2) return false;
+  const zoomed = p.tab.zoomed;
   unzoom(p.tab);
   const r = p.el.getBoundingClientRect();
   let best = null;
@@ -439,6 +441,8 @@ function focusSide(dx, dy) {
     if (score < bestScore) { best = q; bestScore = score; }
   }
   if (best) focusPane(best);
+  else if (zoomed === p) toggleZoom();    // nowhere to go: stay as it was
+  return !!best;
 }
 function focusNext(delta) {
   const p = cur();
@@ -755,11 +759,15 @@ function paste(p) {
 // ───────────────────────── keys ─────────────────────────
 
 const ARROWS = { ArrowLeft: 'focusLeft', ArrowRight: 'focusRight', ArrowUp: 'focusUp', ArrowDown: 'focusDown' };
+const SHIFT_ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 const VIEWS = ['ports', 'ssh', 'projects'];
 
 // The app's own shortcuts. macOS uses ⌘; Windows and Linux use Ctrl+Shift, so that
 // Ctrl+C, Ctrl+R, Ctrl+W… keep going to the shell. Ctrl+Alt is only ours with the
 // arrows: with letters and digits it is AltGr, which types @, #, { … on many keyboards.
+// Shift+arrows (moving between panes) are not here: they are ours only when there is a
+// pane on that side (see onTermKey), so a single pane still sends them to the shell.
+// The shortcuts window (KEYMAP, below) lists these keys: keep the two in step.
 function shortcut(ev) {
   const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
   const code = ev.code;
@@ -770,9 +778,10 @@ function shortcut(ev) {
     if (ev.altKey) return !ev.shiftKey && ARROWS[k] ? ARROWS[k] : null;
     if (ev.shiftKey) {
       return k === 'p' ? 'palette' : k === 'd' ? 'splitDown' : k === 'Enter' ? 'zoom'
-        : (k === '[' || k === '{') ? 'prev' : (k === ']' || k === '}') ? 'next' : null;
+        : (k === '[' || k === '{' || k === 'ArrowLeft') ? 'prev' : (k === ']' || k === '}' || k === 'ArrowRight') ? 'next' : null;
     }
     if (/^Digit[1-9]$/.test(code)) return 'tab' + code.slice(5);
+    if (code === 'Slash') return 'keys';
     return { t: 'new', w: 'close', d: 'splitRight', k: 'palette', p: 'palette', b: 'panel', f: 'find', ',': 'config',
       '[': 'paneLeft', ']': 'paneRight', '=': 'zoomIn', '+': 'zoomIn', '-': 'zoomOut', '0': 'zoomReset' }[k] || null;
   }
@@ -782,6 +791,9 @@ function shortcut(ev) {
   if (ev.shiftKey) {
     if (/^Digit[1-3]$/.test(code)) return VIEWS[code.slice(5) - 1];
     if (k === 'Enter') return 'zoom';
+    if (k === 'ArrowLeft') return 'prev';
+    if (k === 'ArrowRight') return 'next';
+    if (code === 'Slash') return 'keys';
     return { t: 'new', w: 'close', d: 'splitRight', e: 'splitDown', p: 'palette', b: 'panel', f: 'find', c: 'copy', v: 'paste' }[k] || null;
   }
   if (k === '=' || k === '+') return 'zoomIn';
@@ -818,6 +830,7 @@ function run(action) {
     case 'zoomOut': zoomText(-1); break;
     case 'zoomReset': zoomText(0); break;
     case 'config': toggleSettings(); break;
+    case 'keys': toggleKeys(); break;
     case 'configFile': api.OpenConfig().catch(toast); break;
     case 'reload': reloadConfig(); break;
     default:
@@ -835,6 +848,16 @@ function onTermKey(p, ev) {
     run(action);
     return false;
   }
+  // Shift+arrows: the pane on that side, or the open side panel past the right edge.
+  // With nothing there they go to the shell as usual.
+  if (ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey && SHIFT_ARROWS[ev.key]) {
+    const [dx, dy] = SHIFT_ARROWS[ev.key];
+    if (focusSide(dx, dy) || (dx > 0 && focusPanel())) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      return false;
+    }
+  }
   if (!isMac && ev.ctrlKey && !ev.shiftKey && !ev.altKey && !ev.metaKey) {
     // Windows habits: Ctrl+C copies when something is selected (else it interrupts),
     // Ctrl+V pastes.
@@ -851,6 +874,10 @@ window.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') { ev.preventDefault(); closeSettings(); return; }
     if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveSettings(); return; }
     if (shortcut(ev) === 'config') { ev.preventDefault(); closeSettings(); }
+    return;
+  }
+  if (!$('keys').hidden) {                                // so does the shortcuts window
+    if (ev.key === 'Escape' || shortcut(ev) === 'keys') { ev.preventDefault(); closeKeys(); }
     return;
   }
   if (ev.key === 'Escape') {
@@ -1018,7 +1045,7 @@ function fillRows(listId, countId, items, emptyText, build) {
   $(countId).textContent = items && items.length ? String(items.length) : '';
   if (!items) { list.replaceChildren(el('li', { class: 'empty', text: 'looking…' })); return; }
   if (!items.length) { list.replaceChildren(el('li', { class: 'empty', text: emptyText })); return; }
-  list.replaceChildren(...items.map(build));
+  keepFocus(list, () => list.replaceChildren(...items.map(build)));
 }
 
 const armed = new Set();   // "pid:port" of the stop buttons waiting for the second click
@@ -1052,7 +1079,7 @@ function renderPorts() {
         setTimeout(refreshPorts, 350);
       },
     });
-    return el('li', { class: 'row' },
+    return el('li', { class: 'row', 'data-k': key },
       el('button', {
         class: 'main', title: `Open http://localhost:${p.port}` + (p.cwd ? `\n${shortPath(p.cwd)}` : '') + (p.addr !== '*' ? `\nlistens on ${p.addr}` : ''),
         onclick: () => api.OpenURL(`http://localhost:${p.port}`).catch(toast),
@@ -1070,7 +1097,7 @@ function renderSSH() {
   const pid = panelProfile();
   fillRows('ssh', 'ssh-count', known(pid).ssh, 'no servers yet', (h) => {
     const sub = [h.user, h.hostName && h.hostName !== h.name ? h.hostName : ''].filter(Boolean).join('@');
-    return el('li', { class: 'row' },
+    return el('li', { class: 'row', 'data-k': h.name },
       el('button', { class: 'main', title: `${sshCommand(pid, h)} · in a new tab`, onclick: () => ssh(pid, h) },
         el('span', { class: 'name', text: h.name }),
         sub ? el('span', { class: 'sub', text: sub }) : null),
@@ -1125,10 +1152,10 @@ function renderProjects() {
     if (!g) groups.push(g = { root: p.root, items: [] });
     g.items.push(p);
   }
-  box.replaceChildren(...groups.flatMap((g) => {
+  keepFocus(box, () => box.replaceChildren(...groups.flatMap((g) => {
     const open = words.length > 0 || !folded[g.root];
     const head = el('button', {
-      class: 'group-head', 'aria-expanded': String(open), title: open ? 'Fold' : 'Unfold',
+      class: 'group-head', 'data-k': 'group:' + g.root, 'aria-expanded': String(open), title: open ? 'Fold' : 'Unfold',
       onclick: () => {
         if (words.length) return;
         const f = stored('rt.folded', {});
@@ -1138,7 +1165,7 @@ function renderProjects() {
       },
     }, icon('M4 6.5l4 4 4-4'), el('span', { text: g.root }), el('span', { class: 'count', text: String(g.items.length) }));
     if (!open) return [head];
-    return [head, el('ul', { class: 'rows' }, ...g.items.map((p) => el('li', { class: 'row' },
+    return [head, el('ul', { class: 'rows' }, ...g.items.map((p) => el('li', { class: 'row', 'data-k': p.path },
       el('button', { class: 'main', title: `${shortPath(p.path)} · open in a new tab`, onclick: () => openTab({ profileId: pid, cwd: p.path }) },
         el('span', { class: 'git' + (p.git ? ' on' : ''), title: p.git ? 'git repo' : '' }),
         el('span', { class: 'name', text: p.name })),
@@ -1146,7 +1173,7 @@ function renderProjects() {
         class: 'act', text: l.name, title: `${l.command} in ${p.name}`,
         onclick: () => launch(l, { profileId: pid, cwd: p.path }),
       }))))))];
-  }));
+  })));
 }
 $('projects-filter').addEventListener('input', renderProjects);
 $('projects-filter').addEventListener('keydown', (ev) => {
@@ -1154,6 +1181,138 @@ $('projects-filter').addEventListener('keydown', (ev) => {
   const first = $('projects').querySelector('.row .main');
   if (first) { ev.preventDefault(); first.click(); }
 });
+
+// The panel by keyboard: Shift+→ from the rightmost pane comes in, ↑ ↓ go from row to
+// row, ← → between the buttons of a row, Enter presses one, Esc or Shift+← go back.
+const STOPS = '#projects-filter, .row .main, .group-head, .empty .link';
+function focusPanel() {
+  if (!view) return false;
+  const first = $('v-' + view).querySelector(STOPS);
+  if (!first) return false;
+  first.focus();
+  return true;
+}
+$('panel').addEventListener('keydown', (ev) => {
+  if (ev.ctrlKey || ev.altKey || ev.metaKey || !view) return;
+  const t = ev.target;
+  const typing = t.tagName === 'INPUT';
+  if (ev.shiftKey) {
+    if (ev.key === 'ArrowLeft' && !typing) { ev.preventDefault(); if (cur()) cur().term.focus(); }
+    return;
+  }
+  const row = t.closest('.row');
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    const stops = [...$('v-' + view).querySelectorAll(STOPS)];
+    const next = stops[stops.indexOf(row ? row.querySelector('.main') : t) + (ev.key === 'ArrowDown' ? 1 : -1)];
+    ev.preventDefault();
+    if (next) next.focus();
+    return;
+  }
+  if (typing || (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight')) return;
+  ev.preventDefault();
+  if (t.classList.contains('group-head')) {          // → unfolds, ← folds
+    if ((t.getAttribute('aria-expanded') === 'true') !== (ev.key === 'ArrowRight')) t.click();
+    return;
+  }
+  if (!row) return;
+  const btns = [...row.querySelectorAll('button:not([disabled])')];
+  const next = btns[btns.indexOf(t) + (ev.key === 'ArrowRight' ? 1 : -1)];
+  if (next) next.focus();
+});
+
+// Draws a list again without losing the keyboard: the focus goes back to the same
+// button of the same row ([data-k]), or to the first row when that one is gone.
+function keepFocus(box, draw) {
+  const a = document.activeElement;
+  if (!a || !box.contains(a)) { draw(); return; }
+  const holder = a.closest('[data-k]');
+  const k = holder && holder.dataset.k;
+  const i = holder && holder !== a ? [...holder.querySelectorAll('button')].indexOf(a) : -1;
+  draw();
+  const again = k != null && [...box.querySelectorAll('[data-k]')].find((e) => e.dataset.k === k);
+  const target = again ? (i < 0 ? again : again.querySelectorAll('button')[i] || again.querySelector('button'))
+    : box.querySelector(STOPS);
+  if (target) target.focus(); else if (cur()) cur().term.focus();
+}
+
+// ───────────────────────── keyboard shortcuts window ─────────────────────────
+// Every key of the app, by group: [what it does, its action (for the palette), the keys
+// on Windows and Linux, the keys on macOS]. Keep it in step with shortcut().
+
+const KEYMAP = [
+  ['Tabs', [
+    ['New tab', 'new', ['Ctrl+Shift+T'], ['⌘T']],
+    ['Next tab', 'next', ['Ctrl+Shift+→', 'Ctrl+Tab'], ['⌘⇧→', '⌃Tab', '⌘⇧]']],
+    ['Previous tab', 'prev', ['Ctrl+Shift+←', 'Ctrl+Shift+Tab'], ['⌘⇧←', '⌃⇧Tab', '⌘⇧[']],
+    ['Go to tab 1 to 9', '', ['Alt+1…9'], ['⌘1…9']],
+  ]],
+  ['Panes', [
+    ['Split right', 'splitRight', ['Ctrl+Shift+D'], ['⌘D']],
+    ['Split down', 'splitDown', ['Ctrl+Shift+E'], ['⌘⇧D']],
+    ['Go to the pane on that side', '', ['Shift+←↑↓→', 'Ctrl+Alt+←↑↓→'], ['⇧←↑↓→', '⌘⌥←↑↓→']],
+    ['Previous / next pane', '', [], ['⌘[', '⌘]']],
+    ['Maximise pane, and back', 'zoom', ['Ctrl+Shift+Enter'], ['⌘⇧Enter']],
+    ['Close pane', 'close', ['Ctrl+Shift+W'], ['⌘W']],
+  ]],
+  ['Side panels', [
+    ['Ports', 'ports', ['Ctrl+Shift+1'], ['⌃1']],
+    ['SSH', 'ssh', ['Ctrl+Shift+2'], ['⌃2']],
+    ['Projects', 'projects', ['Ctrl+Shift+3'], ['⌃3']],
+    ['Show / hide the last panel', 'panel', ['Ctrl+Shift+B'], ['⌘B']],
+    ['Go into the open panel', '', ['Shift+→'], ['⇧→']],
+    ['Move in the panel', '', ['↑ ↓', '← →'], ['↑ ↓', '← →']],
+    ['Back to the terminal', '', ['Esc', 'Shift+←'], ['Esc', '⇧←']],
+  ]],
+  ['Terminal', [
+    ['Find', 'find', ['Ctrl+Shift+F'], ['⌘F']],
+    ['Copy', 'copy', ['Ctrl+Shift+C', 'Ctrl+C on a selection'], ['⌘C']],
+    ['Paste', 'paste', ['Ctrl+Shift+V'], ['⌘V']],
+    ['Bigger text', 'zoomIn', ['Ctrl+='], ['⌘=']],
+    ['Smaller text', 'zoomOut', ['Ctrl+-'], ['⌘-']],
+    ['Normal text size', 'zoomReset', ['Ctrl+0'], ['⌘0']],
+  ]],
+  ['App', [
+    ['Commands', 'palette', ['Ctrl+Shift+P'], ['⌘K', '⌘⇧P']],
+    ['Keyboard shortcuts', 'keys', ['Ctrl+Shift+/'], ['⌘/']],
+    ['Settings', 'config', ['Ctrl+,'], ['⌘,']],
+    ['Save the settings', '', ['Ctrl+S'], ['⌘S']],
+  ]],
+];
+const comboKeys = (row) => {
+  const ks = isMac ? row[3] : row[2];
+  // Windows: Ctrl+V pastes too
+  return !isMac && row[1] === 'paste' && boot.platform === 'windows' ? ks.concat('Ctrl+V') : ks;
+};
+// The first key of an action, for the palette.
+function keyText(action) {
+  for (const [, rows] of KEYMAP) for (const r of rows) if (r[1] === action) return comboKeys(r)[0] || '';
+  return '';
+}
+
+function renderKeys() {
+  $('keys-body').replaceChildren(...KEYMAP.map(([group, rows]) => el('section', { class: 'keys-group' },
+    el('h2', { text: group }),
+    ...rows.filter((r) => comboKeys(r).length).map((r) => el('div', { class: 'keys-row' },
+      el('span', { class: 'what', text: r[0] }),
+      el('span', { class: 'combos' }, ...comboKeys(r).map((k) => el('kbd', { text: k }))))))));
+}
+function toggleKeys() { if ($('keys').hidden) openKeys(); else closeKeys(); }
+function openKeys() {
+  if (!$('palette').hidden) closePalette();
+  closeMenu();
+  renderKeys();
+  $('keys').hidden = false;
+  $('keys-body').scrollTop = 0;
+  $('keys-body').focus();              // so ↑ ↓ and Page Up / Down scroll it
+}
+function closeKeys() {
+  if ($('keys').hidden) return;
+  $('keys').hidden = true;
+  if (cur()) cur().term.focus();
+}
+$('keys-btn').addEventListener('click', () => toggleKeys());
+$('keys-close').addEventListener('click', closeKeys);
+$('keys').addEventListener('mousedown', (ev) => { if (ev.target === $('keys')) closeKeys(); });
 
 // ───────────────────────── command palette ─────────────────────────
 
@@ -1165,8 +1324,6 @@ function paletteSource() {
   const k = known(pid);
   const p0 = cur();
   const here = p0 && p0.cwd ? shortPath(p0.cwd) : '';
-  const mod = isMac ? '⌘' : 'Ctrl+Shift+';
-  const ctl = isMac ? '⌘' : 'Ctrl+';
   const items = [];
   for (const l of cfg.launchers || []) {
     items.push({ kind: 'run', label: l.name, hint: here ? `in ${here}` : l.command, search: l.command, run: () => launch(l) });
@@ -1175,23 +1332,26 @@ function paletteSource() {
     items.push({ kind: 'ssh', label: h.name, hint: [h.user, h.hostName].filter(Boolean).join('@'), run: () => ssh(pid, h) });
   }
   items.push(
-    { kind: 'pane', label: 'Split right', hint: 'a pane beside this one', keys: mod + 'D', run: () => run('splitRight') },
-    { kind: 'pane', label: 'Split down', hint: 'a pane below this one', keys: isMac ? '⌘⇧D' : mod + 'E', run: () => run('splitDown') },
-    { kind: 'pane', label: 'Maximise pane', hint: 'and back', keys: isMac ? '⌘⇧Enter' : mod + 'Enter', run: () => run('zoom') },
-    { kind: 'pane', label: 'Close pane', keys: mod + 'W', run: () => run('close') },
+    { kind: 'pane', label: 'Split right', hint: 'a pane beside this one', keys: keyText('splitRight'), run: () => run('splitRight') },
+    { kind: 'pane', label: 'Split down', hint: 'a pane below this one', keys: keyText('splitDown'), run: () => run('splitDown') },
+    { kind: 'pane', label: 'Maximise pane', hint: 'and back', keys: keyText('zoom'), run: () => run('zoom') },
+    { kind: 'pane', label: 'Close pane', keys: keyText('close'), run: () => run('close') },
   );
   for (const p of boot.profiles) {
-    items.push({ kind: 'tab', label: `New tab: ${p.name}`, keys: p.id === pid ? mod + 'T' : '', run: () => openTab({ profileId: p.id, cwd: p.id === pid && p0 ? p0.cwd : '' }) });
+    items.push({ kind: 'tab', label: `New tab: ${p.name}`, keys: p.id === pid ? keyText('new') : '', run: () => openTab({ profileId: p.id, cwd: p.id === pid && p0 ? p0.cwd : '' }) });
   }
   items.push(
+    { kind: 'tab', label: 'Next tab', keys: keyText('next'), run: () => run('next') },
+    { kind: 'tab', label: 'Previous tab', keys: keyText('prev'), run: () => run('prev') },
     { kind: 'tab', label: 'Close tab', hint: 'with all its panes', run: () => run('closeTab') },
-    { kind: 'panel', label: 'Ports', hint: 'what is listening', keys: (isMac ? '⌃' : mod) + '1', run: () => showView('ports') },
-    { kind: 'panel', label: 'SSH', hint: 'your servers and ~/.ssh/config', keys: (isMac ? '⌃' : mod) + '2', run: () => showView('ssh') },
-    { kind: 'panel', label: 'Projects', hint: 'your project folders', keys: (isMac ? '⌃' : mod) + '3', run: () => showView('projects') },
-    { kind: 'view', label: 'Find in the terminal', keys: mod + 'F', run: () => openFind() },
-    { kind: 'view', label: 'Bigger text', keys: ctl + '+', run: () => zoomText(1) },
-    { kind: 'view', label: 'Smaller text', keys: ctl + '-', run: () => zoomText(-1) },
-    { kind: 'app', label: 'Settings', hint: 'project folders, servers, launchers, look', keys: ctl + ',', run: () => openSettings() },
+    { kind: 'panel', label: 'Ports', hint: 'what is listening', keys: keyText('ports'), run: () => showView('ports') },
+    { kind: 'panel', label: 'SSH', hint: 'your servers and ~/.ssh/config', keys: keyText('ssh'), run: () => showView('ssh') },
+    { kind: 'panel', label: 'Projects', hint: 'your project folders', keys: keyText('projects'), run: () => showView('projects') },
+    { kind: 'view', label: 'Find in the terminal', keys: keyText('find'), run: () => openFind() },
+    { kind: 'view', label: 'Bigger text', keys: keyText('zoomIn'), run: () => zoomText(1) },
+    { kind: 'view', label: 'Smaller text', keys: keyText('zoomOut'), run: () => zoomText(-1) },
+    { kind: 'app', label: 'Keyboard shortcuts', hint: 'every key of the app', search: 'keys keybindings help hotkeys', keys: keyText('keys'), run: () => openKeys() },
+    { kind: 'app', label: 'Settings', hint: 'project folders, servers, launchers, look', keys: keyText('config'), run: () => openSettings() },
     { kind: 'app', label: 'Add a server', hint: 'Settings · Servers', search: 'vps ssh host', run: () => openSettings('servers', true) },
     { kind: 'app', label: 'Add a project folder', hint: 'Settings · Projects', search: 'root', run: () => openSettings('projects') },
     { kind: 'app', label: 'Open the config file', hint: boot.configPath, run: () => run('configFile') },
@@ -1545,6 +1705,7 @@ function openSettings(to, addServer) {
   section = to || section;
   if (addServer) draft.servers.push({ name: '', hostName: '', user: '', port: '', identity: '' });
   $('settings').hidden = false;
+  renderVersion();
   renderSettings(!!addServer);
   if (!addServer) $('settings-nav').querySelector('[aria-selected="true"]').focus();
 }
@@ -1580,8 +1741,20 @@ $('settings').addEventListener('mousedown', (ev) => { if (ev.target === $('setti
 // until it is asked for from the palette. On Windows "Update now" downloads and runs
 // the installer, which reopens the app with the same tabs; on macOS it opens the page.
 let update = null;
+let updateState = '';     // '', 'checking' or 'failed': what the last check did
 async function checkUpdate(asked) {
-  try { update = await api.CheckUpdate(); } catch (err) { if (asked) toast(err); return; }
+  updateState = 'checking';
+  renderVersion();
+  try {
+    update = await api.CheckUpdate();
+    updateState = '';
+  } catch (err) {
+    updateState = 'failed';
+    if (asked) toast(err);
+    return;
+  } finally {
+    renderVersion();
+  }
   if (!update.newer) {
     if (asked) toast(update.current === 'dev'
       ? 'This is a development build: it does not update itself.'
@@ -1594,6 +1767,23 @@ async function checkUpdate(asked) {
   $('update-go').disabled = false;
   $('update').hidden = false;
 }
+// The version at the foot of Settings, and what the last check found. A click checks
+// again (and shows the update bar when there is a newer one).
+function renderVersion() {
+  const b = $('settings-version');
+  const dev = boot.version === 'dev';
+  let status = '';
+  if (dev) status = 'development build';
+  else if (updateState === 'checking') status = 'checking for updates…';
+  else if (updateState === 'failed') status = 'could not check for updates';
+  else if (update && update.newer) status = `${update.latest} is available`;
+  else if (update && update.latest) status = 'up to date';
+  b.textContent = dev ? `ruben-term · ${status}` : `ruben-term ${boot.version}` + (status ? ` · ${status}` : '');
+  b.classList.toggle('newer', !!(update && update.newer));
+  b.disabled = updateState === 'checking';
+}
+$('settings-version').addEventListener('click', () => checkUpdate(true));
+
 $('update-later').addEventListener('click', () => { store('skipUpdate', update.latest); $('update').hidden = true; });
 $('update-notes').addEventListener('click', () => { if (update.page) api.OpenURL(update.page); });
 $('update-go').addEventListener('click', async () => {
