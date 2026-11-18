@@ -8,6 +8,13 @@ name: build
 # the Mac: it is published with the Windows installer, and the Mac job adds its zip to
 # it when it is done.
 
+# The name in the Actions list: "Release v1.2.3" for a tag, "Build main" for a push,
+# "PR #12" for a pull request (by default GitHub shows the last commit's message).
+run-name: >-
+  ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.number)
+  || startsWith(github.ref, 'refs/tags/v') && format('Release {0}', github.ref_name)
+  || format('Build {0}', github.ref_name) }}
+
 on:
   push:
     branches: [main]
