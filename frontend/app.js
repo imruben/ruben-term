@@ -168,6 +168,7 @@ function makePane(tab, opts) {
     cursorInactiveStyle: 'outline',
     theme: termTheme(),
     macOptionIsMeta: true,
+    macOptionClickForcesSelection: true,   // ⌥-drag selects text even when a program owns the mouse
     rightClickSelectsWord: false,
     drawBoldTextInBrightColors: false,
     minimumContrastRatio: 1,
@@ -242,6 +243,19 @@ async function startPane(p, opts) {
     if (data === 'idle') p.running = '';
     else if (data.startsWith('run;')) p.running = data.slice(4).trim();
     if (p.running !== was) saveSoon();
+    return true;
+  });
+  // OSC 52: programs that own the mouse (Claude Code, opencode, vim, tmux…) copy by sending
+  // "<targets>;<base64 text>". Reading the clipboard back ("?") is refused on purpose.
+  term.parser.registerOscHandler(52, (data) => {
+    const i = data.indexOf(';');
+    if (i < 0) return true;
+    const b64 = data.slice(i + 1);
+    if (b64 === '?') return true;
+    try {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      rt.ClipboardSetText(new TextDecoder().decode(bytes));
+    } catch (_) { /* not valid base64: ignore */ }
     return true;
   });
   p.el.addEventListener('contextmenu', (ev) => {   // right click: copy the selection, or paste
